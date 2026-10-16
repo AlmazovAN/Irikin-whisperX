@@ -9,6 +9,7 @@ from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging
+import inspect
 import os
 from pathlib import Path
 import re
@@ -18,6 +19,7 @@ from typing import Callable
 
 from modules.jobs.inputs import InputSource, InputValidationError, validate_input
 from modules.jobs.results import ResultFormatError, write_result_files
+from modules.jobs.progress import progress_for_stage, stage_index
 from modules.jobs.service import JobService
 from modules.jobs.storage import JobStorageError
 from modules.jobs.transcription_service import (
@@ -214,7 +216,7 @@ class JobWorker:
                     return None
                 start = _now()
                 cursor = conn.execute("""
-                    UPDATE tasks SET status='IN_PROGRESS', stage='ASR',
+                    UPDATE tasks SET status='IN_PROGRESS', stage='PREPARING', progress=0.0,
                         attempt=attempt+1, started_at=?, updated_at=?,
                         error=NULL, error_code=NULL
                     WHERE id=? AND status='QUEUED'
@@ -236,15 +238,65 @@ class JobWorker:
                 updated = conn.execute("""
                     UPDATE tasks SET status=?, stage=?, error_code=?, error=?,
                         output_txt_path=?, output_json_path=?,
-                        progress=?, finished_at=?, updated_at=?
+                        progress=CASE WHEN ?='COMPLETED' THEN 1.0 ELSE progress END,
+                        finished_at=?, updated_at=?
                     WHERE uuid=? AND status='IN_PROGRESS' AND attempt=?
                 """, (
                     final, phase, error_code, message, txt, json_file,
-                    1.0 if success else 0.0, _now(), _now(),
+                    final, _now(), _now(),
                     claim.identifier, claim.attempt,
                 ))
                 if updated.rowcount != 1:
                     raise WorkerError("JOB_STATE_CONFLICT", "Job status changed unexpectedly")
+
+    def _record_stage(
+        self, claim: _Claimed, stage: str, *, asr_fraction: float | None = None,
+    ) -> bool:
+        """Persist monotone actual milestones only for the current job attempt."""
+        value = progress_for_stage(stage, asr_fraction=asr_fraction)
+        rank = stage_index(stage)
+        with closing(self.jobs._connect()) as conn:
+            with conn:
+                conn.execute("BEGIN IMMEDIATE")
+                row = conn.execute("""
+                    SELECT stage, progress FROM tasks
+                    WHERE uuid=? AND attempt=? AND status='IN_PROGRESS'
+                """, (claim.identifier, claim.attempt)).fetchone()
+                if row is None:
+                    return False
+                try:
+                    previous_rank = stage_index(row["stage"])
+                except ValueError:
+                    return False
+                previous = float(row["progress"] or 0.0)
+                if rank < previous_rank or value <= previous:
+                    return False
+                at = _now()
+                updated = conn.execute("""
+                    UPDATE tasks SET stage=?, progress=?, updated_at=?
+                    WHERE uuid=? AND attempt=? AND status='IN_PROGRESS'
+                """, (stage, value, at, claim.identifier, claim.attempt))
+                return updated.rowcount == 1
+
+    def _callbacks_for(self, transcriber: object, claim: _Claimed) -> dict:
+        """Use real service events; retain older fake/custom adapters unchanged."""
+        try:
+            params = inspect.signature(transcriber.transcribe).parameters
+        except (TypeError, ValueError):
+            return {}
+        supports_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
+        kwargs: dict = {}
+        if "stage_callback" in params or supports_kw:
+            kwargs["stage_callback"] = lambda stage: self._record_stage(claim, stage)
+        if "progress_callback" in params or supports_kw:
+            def on_asr(value: float) -> None:
+                try:
+                    self._record_stage(claim, "ASR", asr_fraction=value)
+                except ValueError:
+                    # An invalid model progress fraction is not an ASR failure.
+                    return
+            kwargs["progress_callback"] = on_asr
+        return kwargs
 
     def _process(self, claim: _Claimed, transcriber: object) -> None:
         try:
@@ -261,7 +313,8 @@ class JobWorker:
                 raise WorkerError("JOB_NOT_FOUND", "Accepted job was not found")
             from dataclasses import replace
             source = replace(source, safe_filename=ticket.file_name)
-            result = transcriber.transcribe(source)
+            result = transcriber.transcribe(source, **self._callbacks_for(transcriber, claim))
+            self._record_stage(claim, "EXPORT")
             output = self.jobs.storage.root / claim.identifier / "result"
             if output.is_symlink():
                 raise WorkerError("UNSAFE_RESULT_DIR", "Result directory is unsafe")
