@@ -297,3 +297,100 @@ def test_actual_pass_requires_full_pipeline_evidence(monkeypatch, tmp_path):
     saved = json.loads(next((tmp_path / "logs").glob("smoke-*.json")).read_text())
     assert saved["status"] == "passed"
     assert saved["actual_inference_performed"] is True
+
+
+def test_execute_pipeline_reuses_single_existing_engine_with_exact_preset(monkeypatch, tmp_path):
+    """Mock heavy imports but exercise the real P06 execute_pipeline wiring."""
+    import sys
+    from types import ModuleType
+
+    made = []
+
+    class Param:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    class Bundle(Param):
+        def to_list(self):
+            return [self.whisper, self.vad, self.diarization, self.bgm_separation]
+
+    class FakeWhisperXInference:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.device = "cuda"
+            self.whisperx_wrapper = None
+            self.offloaded = False
+            made.append(self)
+
+        def run(self, audio, progress, output, add_timestamp, callback, *values):
+            assert output == "txt"
+            assert add_timestamp is False
+            assert callback is None
+            assert len(values) == 4
+            whisper, vad, diarization, bgm = values
+            assert whisper.model_size == "small"
+            assert whisper.lang == "russian"  # the legacy run() converts to 'ru'
+            assert whisper.is_translate is False
+            assert whisper.compute_type == "int8"
+            assert whisper.batch_size == 1
+            assert whisper.enable_whisperx_alignment is True
+            assert vad.vad_filter is True
+            assert diarization.is_diarize is False
+            assert diarization.use_whisperx_diarization is False
+            assert bgm.is_separate_bgm is False
+            assert self.device == "cpu"
+            return [Segment("Привет", words=[Word(0.0, 1.0)])], 2.5
+
+        def offload(self):
+            self.offloaded = True
+
+    gradio = ModuleType("gradio")
+    gradio.Progress = lambda: object()
+    whisper = ModuleType("whisper")
+    whisper.tokenizer = SimpleNamespace(LANGUAGES={"ru": "russian"})
+    torch = ModuleType("torch")
+    torch.cuda = SimpleNamespace(is_available=lambda: False)
+    fake_inference = ModuleType("modules.whisper.whisperx_inference")
+    fake_inference.WhisperXInference = FakeWhisperXInference
+    fake_data = ModuleType("modules.whisper.data_classes")
+    for name in ("WhisperParams", "VadParams", "DiarizationParams", "BGMSeparationParams"):
+        setattr(fake_data, name, Param)
+    fake_data.TranscriptionPipelineParams = Bundle
+    for name, module in (
+        ("gradio", gradio), ("whisper", whisper), ("torch", torch),
+        ("modules.whisper.whisperx_inference", fake_inference),
+        ("modules.whisper.data_classes", fake_data),
+    ):
+        monkeypatch.setitem(sys.modules, name, module)
+
+    args = smoke.parse_args(["--audio", str(tmp_path / "fake.wav"), "--without-diarization"])
+    monkeypatch.setattr(smoke, "ROOT", tmp_path)
+    evidence = smoke.execute_pipeline(tmp_path / "fake.wav", args)
+    assert len(made) == 1
+    assert made[0].offloaded
+    assert evidence["configuration"]["engine"] == "existing WhisperXInference.run"
+    assert evidence["configuration"]["language"] == "ru"
+    assert evidence["aligned_words"] == 1
+
+
+def test_execute_pipeline_requires_cuda_when_explicitly_requested(monkeypatch, tmp_path):
+    import sys
+    from types import ModuleType
+    gradio = ModuleType("gradio")
+    whisper = ModuleType("whisper")
+    torch = ModuleType("torch")
+    torch.cuda = SimpleNamespace(is_available=lambda: False)
+    for name, module in (("gradio", gradio), ("whisper", whisper), ("torch", torch)):
+        monkeypatch.setitem(sys.modules, name, module)
+    # The engine imports also need stubs to reach the device guard.
+    backend = ModuleType("modules.whisper.whisperx_inference")
+    backend.WhisperXInference = object
+    data = ModuleType("modules.whisper.data_classes")
+    for cls in ("WhisperParams", "VadParams", "DiarizationParams",
+                "BGMSeparationParams", "TranscriptionPipelineParams"):
+        setattr(data, cls, object)
+    monkeypatch.setitem(sys.modules, "modules.whisper.whisperx_inference", backend)
+    monkeypatch.setitem(sys.modules, "modules.whisper.data_classes", data)
+    args = smoke.parse_args(["--audio", str(tmp_path / "x.wav"), "--device", "cuda"])
+    with pytest.raises(smoke.SmokeBlocked, match="CUDA"):
+        smoke.execute_pipeline(tmp_path / "x.wav", args)
