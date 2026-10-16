@@ -298,3 +298,45 @@ def test_no_automatic_retention_deletion_on_restart(job):
     assert saved_txt.is_file()
     assert saved_input.is_file()
     assert svc.get(ticket.identifier).status == "COMPLETED"
+
+
+def test_worker_never_completes_if_second_transcript_write_fails(job, monkeypatch):
+    """Integration: FAILED stays durable and no half-pair reaches SQLite."""
+    svc, root, add = job
+    ticket = add("failed_export")
+    import modules.jobs.artifacts as artifact_module
+    original = artifact_module._write_fsynced
+
+    def fail_txt(path, data):
+        if path.name == "transcript.txt":
+            raise OSError("simulated output disk error")
+        return original(path, data)
+
+    monkeypatch.setattr(artifact_module, "_write_fsynced", fail_txt)
+
+    class Fake:
+        def transcribe(self, source):
+            return Result(input_name=source.safe_filename)
+
+    worker = JobWorker(svc, transcriber_factory=Fake, poll_interval=0.01)
+    worker.start()
+    try:
+        failed = wait_for(svc, ticket.identifier, "FAILED")
+    finally:
+        assert worker.stop(timeout=5)
+    assert failed.error_code == "RESULT_WRITE_FAILED"
+    assert failed.progress < 1.0
+    with closing(svc._connect()) as conn:
+        row = conn.execute(
+            "SELECT output_json_path, output_txt_path, status FROM tasks WHERE uuid=?",
+            (ticket.identifier,),
+        ).fetchone()
+    assert row["status"] == "FAILED"
+    assert row["output_json_path"] is None
+    assert row["output_txt_path"] is None
+    assert not (root / ticket.identifier / "result" / "attempt-1").exists()
+    assert list((root / ticket.identifier / "result").iterdir()) == []
+    assert svc.saved_input(ticket.identifier).is_file()
+    with pytest.raises(JobIntakeError) as err:
+        svc.get_artifact(ticket.identifier, format="txt")
+    assert err.value.code == "ARTIFACT_NOT_READY"
