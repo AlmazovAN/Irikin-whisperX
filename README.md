@@ -5,6 +5,24 @@ A Gradio-based browser interface for [Whisper](https://github.com/openai/whisper
 
 
 
+## Windows installation in this fork (Stage 0 / P03)
+
+This fork uses a **profile-based Windows installer**. CPU is the default, including
+machines with integrated AMD Radeon graphics. The published package versions
+are a compatibility **candidate**, not a Windows/GPU acceptance result yet.
+
+From the repository folder:
+```bat
+Install.bat --profile cpu --dry-run
+Install.bat --profile cpu
+```
+
+Use `--profile cuda126` only for a confirmed supported NVIDIA GPU/driver.
+The installer refuses to silently replace an existing `venv`.
+See [Windows installation guide](docs/windows-installation.md) and
+[hardware preflight](docs/windows-preflight.md) for prerequisites and limitations.
+The later upstream-oriented installation instructions are retained for legacy use.
+
 ## Notebook
 If you wish to try this on Colab, you can do it in [here](https://colab.research.google.com/github/chboishabba/WhisperX-WebUI/blob/master/notebook/whisper-webui.ipynb)!
 
@@ -107,7 +125,7 @@ After installing FFmpeg, **make sure to add the `FFmpeg/bin` folder to your syst
 ```shell
 git clone https://github.com/chboishabba/WhisperX-WebUI.git
 ```
-2. Run `install.bat` or `install.sh` to install dependencies. (It will create a `venv` directory and install dependencies there.)
+2. On Windows use `Install.bat --profile cpu` (or `--profile cuda126` for NVIDIA); on Linux/macOS `Install.sh` retains the legacy path. The Windows installer protects existing `venv` and reports errors.
 3. Start WebUI with `start-webui.bat` or `start-webui.sh` (It will run `python app.py` after activating the venv)
 
 And you can also run the project with command line arguments if you like to, see [wiki](https://github.com/chboishabba/WhisperX-WebUI/wiki/Command-Line-Arguments) for a guide to arguments.
@@ -147,7 +165,7 @@ Avoid launching large batch transcriptions while a live session is running so th
 
 ### Dependency notes
 
-- `torchaudio` is pinned to 2.7.1 in [`requirements.txt`](./requirements.txt). Releases starting with 2.8 removed the `AudioMetaData` helper that our diarization pipeline imports, which triggers an `AttributeError` during transcription/diarization runs. Upgrade deliberately once the codebase stops relying on that class (or after adding a compatibility shim).
+- The P03 candidate pins `torch==2.7.1`, `torchaudio==2.7.1` and `torchvision==0.22.1` in [`requirements/torch.txt`](./requirements/torch.txt). The Windows installer selects CPU or NVIDIA CUDA 12.6 wheels first. TorchAudio 2.8 removed the `AudioMetaData` helper still used by this code. Compatibility is **not verified** until a Windows smoke-test.
 
 # WhisperX Alignment & Diarization
 
