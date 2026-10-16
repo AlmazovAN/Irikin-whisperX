@@ -18,7 +18,7 @@
 | [#3](https://github.com/AlmazovAN/Irikin-whisperX/pull/3) | `feature/p03-windows-install` | P02 | Профили CPU/CUDA, кандидатные версии, Install.bat | DRAFT; не слит |
 | [#4](https://github.com/AlmazovAN/Irikin-whisperX/pull/4) | `fix/p04-local-security` | P03 | Loopback-only, безопасные пути, токены, backend guard | DRAFT; не слит |
 | [#5](https://github.com/AlmazovAN/Irikin-whisperX/pull/5) | `feature/p05-windows-launcher` | P04 | Start.bat, диагностика запуска, логи и shutdown | DRAFT; не слит |
-| #6 | `test/p06-smoke-adr` | P05 | Реальная smoke-команда, unit-защита от ложного PASS, ADR-001 | PENDING REVIEW; не слит |
+| [#6](https://github.com/AlmazovAN/Irikin-whisperX/pull/6) | `test/p06-smoke-adr` | P05 | Реальная smoke-команда, unit-защита от ложного PASS, ADR-001 | DRAFT; не слит |
 
 **Ветки намеренно зависимые (stacked PR)**. Ветка P06 содержит весь
 разрабатываемый код этапа 0. Не следует направлять все шесть PR
