@@ -195,7 +195,7 @@ def test_explicit_retry_reuses_input_not_inference_on_request_thread(env):
     finally:
         assert worker.stop(timeout=5)
     assert ok.attempt == 2
-    assert (storage / a.identifier / "result" / "transcript-2.txt").is_file()
+    assert (storage / a.identifier / "result" / "attempt-2" / "transcript.txt").is_file()
     assert not svc.retry(a.identifier)
 
 
