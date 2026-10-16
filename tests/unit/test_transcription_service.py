@@ -20,6 +20,7 @@ pytestmark = pytest.mark.fast
 @pytest.fixture(autouse=True)
 def stub_heavy_model_schemas(monkeypatch):
     """Exercise real P07 preset builder without installing ML packages in CI."""
+    monkeypatch.setenv("HF_TOKEN", "hf_test_fixture_not_a_real_secret")
     fake_module = ModuleType("modules.whisper.data_classes")
 
     class FakeParams:
@@ -236,3 +237,56 @@ def test_import_has_no_heavy_import_side_effects():
         timeout=10, check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+
+def test_missing_hf_token_blocks_before_heavy_model(valid_source, monkeypatch):
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    made = []
+    service = TranscriptionService(pipeline_factory=lambda: made.append(True))
+    with pytest.raises(TranscriptionServiceError) as exc:
+        service.transcribe(valid_source)
+    assert exc.value.code == "HF_TOKEN_MISSING"
+    assert "HF_TOKEN" in str(exc.value)
+    assert not made
+    assert service._pipeline is None
+
+
+def test_diagnostic_asr_only_does_not_need_hf_token(valid_source, monkeypatch):
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    fake = FakePipeline(segments=spoken(speaker=False))
+    result = TranscriptionService(pipeline_factory=lambda: fake).transcribe(
+        valid_source, diarization_enabled=False,
+    )
+    assert result.diagnostic_only
+
+
+@pytest.mark.parametrize("stage_code", [
+    "HF_MODEL_ACCESS", "ALIGNMENT_MODEL_UNAVAILABLE", "ALIGNMENT_FAILED",
+    "CUDA_UNAVAILABLE", "DIARIZATION_FAILED",
+])
+def test_stage_specific_failures_keep_actionable_code_without_secrets(
+    valid_source, stage_code,
+):
+    from modules.diarize.diagnostics import ModelStageError
+    original_secret = "hf_super_private_secret_do_not_echo"
+    fake = FakePipeline(fail=ModelStageError(stage_code, "Stage failed; check model access"))
+    with pytest.raises(TranscriptionServiceError) as exc:
+        TranscriptionService(pipeline_factory=lambda: fake).transcribe(valid_source)
+    assert exc.value.code == stage_code
+    assert original_secret not in str(exc.value)
+    assert fake.offloads == 1
+
+
+def test_two_speakers_fixture_keeps_independent_labels(valid_source):
+    utterances = [
+        FakeSegment(start=0, end=0.5, text="Добрый день",
+                    speaker="SPEAKER_00", words=[FakeWord(start=0.1, end=0.4, speaker="SPEAKER_00")]),
+        FakeSegment(start=2, end=2.5, text="Здравствуйте",
+                    speaker="SPEAKER_01", words=[FakeWord(start=2.1, end=2.4, speaker="SPEAKER_01")]),
+    ]
+    pipeline = FakePipeline(segments=utterances)
+    result = TranscriptionService(pipeline_factory=lambda: pipeline).transcribe(valid_source)
+    assert {seg.speaker for seg in result.segments} == {"SPEAKER_00", "SPEAKER_01"}
+    assert result.segments[0].words[0].speaker == "SPEAKER_00"
+    assert result.segments[1].words[0].speaker == "SPEAKER_01"

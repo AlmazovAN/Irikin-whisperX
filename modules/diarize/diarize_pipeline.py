@@ -42,6 +42,10 @@ else:
 
 from pyannote.audio import Pipeline
 
+from modules.diarize.diagnostics import (
+    HF_ACCESS_GUIDANCE, ModelStageError, require_device, require_hf_token,
+)
+
 from modules.whisper.data_classes import *
 from modules.utils.paths import WHISPERX_MODELS_DIR
 from modules.diarize.audio_loader import load_audio, SAMPLE_RATE
@@ -58,12 +62,32 @@ class DiarizationPipeline:
         device: Optional[Union[str, torch.device]] = "cpu",
         compute_type: Optional[str] = None,
     ):
+        # The Pyannote model is gated; fail before downloading or running ASR
+        # if the credential is missing. Token and third-party error messages
+        # never appear in exceptions returned to callers.
+        auth_token = require_hf_token(use_auth_token)
+        device_name = str(device) if device is not None else "cpu"
+        require_device(device_name, torch.cuda.is_available())
         cache_dir = cache_dir or os.path.join(WHISPERX_MODELS_DIR, "diarization")
-        if isinstance(device, str):
-            device = torch.device(device)
-        self.model = Pipeline.from_pretrained(
-            model_name, use_auth_token=use_auth_token, cache_dir=cache_dir
-        ).to(device=device)
+        selected_device = torch.device(device_name)
+        try:
+            model = Pipeline.from_pretrained(
+                model_name, use_auth_token=auth_token, cache_dir=cache_dir
+            )
+        except Exception:
+            raise ModelStageError("HF_MODEL_ACCESS", HF_ACCESS_GUIDANCE) from None
+        if model is None:
+            # pyannote.audio versions can return None for an inaccessible
+            # model instead of throwing an authentication exception.
+            raise ModelStageError("HF_MODEL_ACCESS", HF_ACCESS_GUIDANCE)
+        try:
+            self.model = model.to(device=selected_device)
+        except Exception:
+            raise ModelStageError(
+                "DIARIZATION_MODEL_LOAD",
+                "Pyannote could not initialize on this device. Check model "
+                "compatibility and free memory, or switch to CPU.",
+            ) from None
 
         if compute_type not in (None, "float32"):
             logger.warning(

@@ -59,9 +59,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--compute-type", choices=("int8", "float32", "float16"), default="int8")
     parser.add_argument("--batch-size", type=int, default=1,
                         help="WhisperX ASR batch size 1–8; default 1 for low-memory CPU")
+    parser.add_argument("--min-speakers", type=int, default=1,
+                        help="Required number of distinct assigned speakers (use 2 for a two-voice fixture)")
     args = parser.parse_args(argv)
     if not 1 <= args.batch_size <= 8:
         parser.error("--batch-size must be 1 through 8")
+    if not 1 <= args.min_speakers <= 8:
+        parser.error("--min-speakers must be 1 through 8")
+    if args.without_diarization and args.min_speakers != 1:
+        parser.error("--min-speakers requires diarization")
     if args.device == "cpu" and args.compute_type == "float16":
         parser.error("float16 on CPU is unsupported; use int8 or float32")
     return args
@@ -119,7 +125,7 @@ def inspect_audio(path: Path) -> dict:
             "duration_seconds": round(duration, 2)}
 
 
-def evaluate_segments(segments: list, *, require_diarization: bool) -> dict:
+def evaluate_segments(segments: list, *, require_diarization: bool, min_speakers: int = 1) -> dict:
     """Demand actual ASR text, aligned word timestamps and speaker labels."""
     if not segments:
         raise SmokeFailed("Pipeline returned zero segments")
@@ -140,8 +146,11 @@ def evaluate_segments(segments: list, *, require_diarization: bool) -> dict:
         )
         if isinstance(label, str) and label.strip()
     }
-    if require_diarization and not speaker_labels:
-        raise SmokeFailed("Diarization did not assign speaker labels")
+    if require_diarization and len(speaker_labels) < min_speakers:
+        raise SmokeFailed(
+            f"Diarization assigned {len(speaker_labels)} distinct speaker labels; "
+            f"at least {min_speakers} required"
+        )
     return {
         "segments_with_text": len(spoken),
         "aligned_words": len(aligned),
@@ -181,7 +190,10 @@ def execute_pipeline(audio: Path, args: argparse.Namespace) -> dict:
             str(audio), gr.Progress(), MVP_PRESET.output_format, False, None,
             *params.to_list(), persist_settings=False, strict_vad=True
         )
-        validated = evaluate_segments(segments, require_diarization=require_diarization)
+        validated = evaluate_segments(
+            segments, require_diarization=require_diarization,
+            min_speakers=args.min_speakers,
+        )
         validated["elapsed_pipeline_seconds"] = round(float(elapsed), 2)
         validated["elapsed_total_seconds"] = round(time.monotonic() - started, 2)
         validated["configuration"] = {
@@ -264,6 +276,7 @@ def main(argv: list[str] | None = None) -> int:
         "actual_inference_performed": False,
         "inference_attempted": False,
         "diarization_required": not args.without_diarization,
+        "min_speakers_required": args.min_speakers,
         "stages": {
             "vad": "not_run", "asr": "not_run",
             "alignment": "not_run", "diarization": "not_run",
