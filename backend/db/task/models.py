@@ -25,6 +25,7 @@ class TaskStatus(str, Enum):
     QUEUED = "queued"
     PAUSED = "paused"
     RETRYING = "retrying"
+    INTERRUPTED = "interrupted"
 
     def __str__(self):
         return self.value
@@ -71,6 +72,12 @@ class TaskStatusResponse(BaseModel):
         default=0.0,
         description="Progress of the task"
     )
+    stage: Optional[str] = Field(default=None, description="Current processing stage")
+    attempt: int = Field(default=0, description="Job attempt number")
+    model_name: Optional[str] = Field(default=None, description="Model identifier")
+    model_version: Optional[str] = Field(default=None, description="Model version")
+    created_at: Optional[datetime] = Field(default=None, description="Created at")
+    updated_at: Optional[datetime] = Field(default=None, description="Updated at")
 
 
 class Task(SQLModel, table=True):
@@ -166,6 +173,18 @@ class Task(SQLModel, table=True):
         description="Progress of the task"
     )
 
+    # PR14 / P13: private persisted metadata, compatible with legacy rows.
+    stage: Optional[str] = Field(default=None, description="Pipeline stage")
+    attempt: int = Field(default=0, ge=0, description="Attempt count; 0 for legacy rows")
+    input_path: Optional[str] = Field(default=None, description="Private input artifact path")
+    output_json_path: Optional[str] = Field(default=None, description="Private JSON artifact path")
+    output_txt_path: Optional[str] = Field(default=None, description="Private TXT artifact path")
+    model_name: Optional[str] = Field(default=None, description="ASR model ID")
+    model_version: Optional[str] = Field(default=None, description="Model/library version")
+    started_at: Optional[datetime] = Field(default=None, description="Started at")
+    finished_at: Optional[datetime] = Field(default=None, description="Finished at")
+    error_code: Optional[str] = Field(default=None, description="Failure code")
+
     def to_response(self) -> "TaskStatusResponse":
         return TaskStatusResponse(
             identifier=self.uuid,
@@ -176,7 +195,13 @@ class Task(SQLModel, table=True):
             task_params=redact_config_secrets(self.task_params),
             error=self.error,
             duration=self.duration,
-            progress=self.progress
+            progress=self.progress,
+            stage=self.stage,
+            attempt=self.attempt,
+            model_name=self.model_name,
+            model_version=self.model_version,
+            created_at=self.created_at,
+            updated_at=self.updated_at,
         )
 
 

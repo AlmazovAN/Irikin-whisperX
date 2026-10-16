@@ -105,3 +105,45 @@ Windows/PyTorch/WhisperX, как договорились, переноситс�
 **Вывод:** разработка кода этапа 0 завершена и интегрирована.
 Это не эксплуатационная приёмка продукта; аппаратные проверки
 и устранение проблемы CI остаются входными условиями QA MVP.
+
+## Этап 1 — MVP core, фактические слияния (2026-10-16)
+
+План P07–P12 выполнен и объединён в master последовательными GitHub PR
+#7, #8, #10, #11, #12, #13. PR #9 был промежуточным исправлением CI.
+На старте нового пакета master = bc869242ef1349912da3c321df9f18cfb63b53d7.
+
+| ID плана | GitHub PR | Состояние |
+| --- | --- | --- |
+| P07 | #7 | MERGED — MVP Small/ru preset |
+| P08 | #8 | MERGED — валидируемые входные файлы, FFprobe |
+| P09 | #10 | MERGED — headless TranscriptionService |
+| P10 | #11 | MERGED — VAD timestamps, ru/transcribe |
+| P11 | #12 | MERGED — alignment/Pyannote error diagnostics |
+| P12 | #13 | MERGED — единый JSON/TXT и speaker normalization |
+
+На указанном master GitHub Actions CI успешно завершился на Python
+3.10, 3.11 и 3.12. Это только автономные тесты, без Windows/CPU smoke
+и без реальной загрузки WhisperX/Pyannote. Docker publishing workflows
+падают, но в локальный MVP не входят.
+
+## Чат 03 — очередь и сохранность (P13–P19)
+
+### P13 = GitHub PR #14
+
+- Ветка: feature/pr14-task-schema-migrations.
+- База: bc869242ef1349912da3c321df9f18cfb63b53d7.
+- Статус на момент фиксации: OPEN; не считать MERGED до фактического слияния.
+- Контракт: Task stage/attempt/private artifact paths/model/timestamps/error_code;
+  SQLite migration v1, backup старой базы, миграционные unit-тесты.
+- Подробности: docs/pr14-task-schema.md.
+- Никакого нового worker, upload persistence или UI в P13 нет.
+- CI первой редакции ветки: success Python 3.10/3.11/3.12;
+  после изменения документации перепроверить head и CI.
+- Не изменялись: backend/records.db (tracked), WhisperX pipeline, audio.
+- Windows/CPU/real ASR: NOT_RUN.
+
+### Следующая работа
+
+После принятия P13 начать P14 по плану (предположительно GitHub PR #15):
+атомарный приём входа в data/jobs/<uuid>/input с отметкой QUEUED,
+не полагаясь на временный путь Gradio. Не запускать inference из upload.

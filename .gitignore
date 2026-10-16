@@ -47,3 +47,7 @@ logs/
 *.db-shm
 *.db-wal
 *.db-journal
+
+# PR14/P13: migration backups of pre-existing SQLite files
+*.db.pre-job-schema-*.bak
+*.sqlite3.pre-job-schema-*.bak

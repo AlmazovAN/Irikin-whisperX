@@ -6,6 +6,7 @@ from functools import wraps
 from sqlalchemy.exc import SQLAlchemyError
 from fastapi import HTTPException
 from sqlmodel import SQLModel
+from backend.db.task.migrations import migrate_task_database, migrate_task_schema
 from dotenv import load_dotenv
 
 from backend.common.config_loader import read_env
@@ -14,7 +15,18 @@ from backend.common.config_loader import read_env
 @functools.lru_cache
 def init_db():
     db_url = read_env("DB_URL", "sqlite:///backend/records.db")
-    engine = create_engine(db_url, connect_args={"check_same_thread": False})
+    sqlite_url = db_url.startswith("sqlite:")
+    engine = create_engine(db_url, connect_args={"check_same_thread": False} if sqlite_url else {})
+    if engine.dialect.name == "sqlite":
+        if engine.url.database and engine.url.database != ":memory:":
+            # Automatic backup precedes any upgrade of a legacy SQLite file.
+            migrate_task_database(engine.url.database)
+        else:
+            raw = engine.raw_connection()
+            try:
+                migrate_task_schema(raw)
+            finally:
+                raw.close()
     SQLModel.metadata.create_all(engine)
     return sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
