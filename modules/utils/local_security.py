@@ -137,6 +137,7 @@ class LoopbackOnlyASGI:
             is_loopback_hostname(client_host)
             and is_local_host_header(host)
             and is_local_origin(origin)
+            and (not origin or urlsplit(origin).netloc.lower() == host.lower())
         )
         if allowed:
             await self.app(scope, receive, send)
