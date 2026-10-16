@@ -5,6 +5,21 @@ A Gradio-based browser interface for [Whisper](https://github.com/openai/whisper
 
 
 
+## Windows double-click launcher (Stage 0 / P05)
+
+After installing the CPU or NVIDIA environment using `Install.bat`, open
+**`Start.bat`** from Windows Explorer. It checks local prerequisites, starts
+exactly one loopback-only Gradio server, waits for an HTTP response and opens
+`http://127.0.0.1:7860/` in your browser. It logs locally in `logs/`.
+Press Ctrl+C in the launcher console to stop the server; no separate
+FastAPI/Uvicorn process or model downloads are started by the launcher.
+
+You can run `Start.bat --check-only` without starting Gradio, or
+`Start.bat --no-browser` to keep your browser closed. The launcher intentionally
+does not install dependencies or remove any existing `venv`.
+See [Windows Launcher instructions](docs/windows-launcher.md).
+This is a pre-MVP launcher; real Windows inference remains to be tested in P06.
+
 ## Local security (Stage 0 / P04)
 
 This fork is **localhost-only** by default. Public `--share`, `--api_open`
