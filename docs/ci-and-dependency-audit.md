@@ -15,7 +15,12 @@
 ```sh
 python -m compileall -q app.py backend modules scripts tests
 python -m pytest -q tests/unit
+# По умолчанию "pytest -q" также запускает только tests/unit.
 ```
+
+Конфигурация `pytest.ini` задаёт `testpaths = tests/unit`; полный старый набор
+нужно запускать только с явно указанным путём, например
+`python -m pytest -rs tests --ignore=tests/unit`.
 
 Быстрый контур устанавливает **только pytest**, не устанавливает `requirements.txt`,
 не импортирует WhisperX/torch/Gradio и не скачивает файлы. Он не подменяет реальный
