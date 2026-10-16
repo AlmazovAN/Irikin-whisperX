@@ -38,6 +38,18 @@ uvicorn backend.main:app --host 0.0.0.0 --port 8000
 - WhisperX diarization relies on the `HF_TOKEN` value just like the WebUI. Keep the token in `backend/configs/.env` (see step 1 above) or export it in the environment before starting Uvicorn or the Docker container.
 - The diarization pipeline caches its weights under `models/Diarization/`; ensure this path is writable or mount it as a Docker volume when deploying.
 
+### Local security policy (IrikIn P04 fork)
+
+This fork is **local single-user only**. Its API rejects non-loopback client IPs
+and Host/Origin values, in addition to local-only CORS. Start with
+`uvicorn backend.main:app --host 127.0.0.1 --port 8000`.
+The deployment instructions below are inherited from upstream and are
+**not supported by this fork until an independently reviewed remote-server
+security design is implemented**. Keep `TEST_ENV` disabled outside tests;
+never publish service ports or authentication tokens.
+
+### Legacy upstream instructions — unsupported for this fork
+
 ### Deploy with your domain name
 You can deploy the server with your domain name by setting up a reverse proxy with Nginx.
 
