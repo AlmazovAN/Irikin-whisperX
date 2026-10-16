@@ -10,7 +10,7 @@
 | --- | --- | --- | --- |
 | P01 | [OPEN, PR #1](https://github.com/AlmazovAN/Irikin-whisperX/pull/1); CI не подтверждён | `test/p01-fast-ci` | Быстрые автономные тесты, облегчённый CI, аудит существующих зависимостей |
 | P02 | [OPEN, PR #2](https://github.com/AlmazovAN/Irikin-whisperX/pull/2); ожидает Windows-прогона | `feature/p02-hardware-preflight` | CLI-диагностика Windows/Python/FFmpeg/GPU/VRAM/PyTorch/HF и автономные тесты |
-| P03 | PLANNED | — | Совместимые версии, установка |
+| P03 | OPEN, ожидает тестирования на Windows | `feature/p03-windows-install` | CPU/NVIDIA wheel-профили, кандидатные pin-версии, защитный установщик, unit-тесты |
 | P04 | PLANNED | — | Локальная безопасность и конфигурация |
 | P05 | PLANNED | — | Windows launcher |
 | P06 | PLANNED | — | Реальный smoke-test и ADR |
@@ -35,3 +35,12 @@
 - Linux-тесты диагностики 15/15 проходят в изолированной рабочей копии на Python 3.13. Это не подтверждение запуска на Windows 11 пользователя.
 - Для пользовательской приёмки требуется запуск `python scripts\\diagnose_environment.py --json` на целевом ПК и оценка отчёта (секреты в отчёте не выводятся).
 - Проверка Pyannote HF-gated лицензий и реальный ASR остаются для P06; P02 не загружает модели.
+
+### P03 — installation candidate
+
+- Базовая ветка P03: `feature/p02-hardware-preflight`; обе предыдущие PR пока OPEN.
+- Версии torch/torchaudio/torchvision (2.7.1/2.7.1/0.22.1) и whisperx==3.4.2 согласованы с опубликованными требованиями; реальный Windows-прогон пока **не подтверждён**.
+- Для ноутбука AMD Ryzen 5 5500U / Radeon / 8 ГБ RAM по умолчанию выбран **CPU**, CUDA только по запросу и при обнаружении NVIDIA.
+- `Install.bat` не удаляет прежний `venv`; повтор того же профиля разрешён только с `--reuse-venv` при наличии marker-файла.
+- Основные прямые зависимости закреплены, но полного lock с транзитивными хешами нет. Проверка `pip check` и реальное распознавание нужны для завершения P03/P06.
+- Следующие действия: аудит diff/тестов, фактический `Install.bat --profile cpu --dry-run` на Windows; после осознанного согласования — установка и протокол.
