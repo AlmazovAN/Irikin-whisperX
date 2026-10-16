@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 from modules.whisper.data_classes import *
 from modules.utils.paths import BACKEND_CACHE_DIR
+from modules.utils.local_security import redact_config_secrets
 from modules.whisper.faster_whisper_inference import FasterWhisperInference
 from backend.common.audio import read_audio
 from backend.common.models import QueueResponse
@@ -125,7 +126,7 @@ async def transcription(
         audio_duration=info.duration if info else None,
         language=params.whisper.lang,
         task_type=TaskType.TRANSCRIPTION,
-        task_params=params.to_dict(),
+        task_params=redact_config_secrets(params.to_dict()),
     )
 
     background_tasks.add_task(

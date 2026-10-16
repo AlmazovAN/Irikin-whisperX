@@ -218,6 +218,7 @@ class DiarizationParams(BaseParams):
             gr.Textbox(
                 label=_("HuggingFace Token"),
                 value=defaults.get("hf_token", cls.__fields__["hf_token"].default),
+                type="password",
                 info=_("This is only needed the first time you download the model")
             ),
             gr.Checkbox(

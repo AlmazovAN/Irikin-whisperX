@@ -2,6 +2,8 @@ import os
 import argparse
 import inspect
 import threading
+from pathlib import Path
+from dotenv import load_dotenv
 import gradio as gr
 import numpy as np
 from gradio_i18n import Translate, gettext as _
@@ -10,7 +12,7 @@ import re
 
 from modules.utils.paths import (FASTER_WHISPER_MODELS_DIR, DIARIZATION_MODELS_DIR, OUTPUT_DIR, WHISPER_MODELS_DIR,
                                  INSANELY_FAST_WHISPER_MODELS_DIR, NLLB_MODELS_DIR, WHISPERX_MODELS_DIR,
-                                 DEFAULT_PARAMETERS_CONFIG_PATH, UVR_MODELS_DIR, I18N_YAML_PATH)
+                                 DEFAULT_PARAMETERS_CONFIG_PATH, UVR_MODELS_DIR, I18N_YAML_PATH, WEBUI_DIR)
 from modules.utils.files_manager import load_yaml, MEDIA_EXTENSION
 from modules.whisper.whisper_factory import WhisperFactory
 from modules.translation.nllb_inference import NLLBInference
@@ -24,6 +26,7 @@ from modules.streaming.live_transcription import (
 )
 from modules.whisper.data_classes import *
 from modules.utils.logger import get_logger
+from modules.utils.local_security import validate_launch_settings, allowed_output_paths
 
 
 logger = get_logger()
@@ -32,6 +35,7 @@ logger = get_logger()
 class App:
     def __init__(self, args):
         self.args = args
+        load_dotenv(Path(WEBUI_DIR) / ".env", override=False)
         self.theme = self._resolve_theme(self.args.theme)
         # Check every 1 hour (3600) for cached files and delete them if older than 1 day (86400)
         self.app = self._build_blocks()
@@ -785,7 +789,7 @@ class App:
                         with gr.TabItem(_("DeepL API")):  # sub tab1
                             with gr.Row():
                                 tb_api_key = gr.Textbox(label=_("Your Auth Key (API KEY)"),
-                                                        value=deepl_params["api_key"])
+                                                        value="", type="password")
                             with gr.Row():
                                 dd_source_lang = gr.Dropdown(label=_("Source Language"),
                                                              value=AUTOMATIC_DETECTION if deepl_params["source_lang"] == AUTOMATIC_DETECTION
@@ -890,13 +894,15 @@ class App:
                                                          self.args.output_dir, "UVR", "vocals"
                                                      )))
 
-        # Launch the app with optional gradio settings
+        # Enforce loopback-only access before starting Gradio.
         args = self.args
+        host = validate_launch_settings(server_name=args.server_name, share=args.share, api_open=args.api_open)
+        safe_paths = allowed_output_paths(args.output_dir, args.allowed_paths)
         self.app.queue(
             api_open=args.api_open
         ).launch(
             share=args.share,
-            server_name=args.server_name,
+            server_name=host,
             server_port=args.server_port,
             auth=(args.username, args.password) if args.username and args.password else None,
             root_path=args.root_path,
@@ -905,16 +911,17 @@ class App:
             ssl_keyfile=args.ssl_keyfile,
             ssl_keyfile_password=args.ssl_keyfile_password,
             ssl_certfile=args.ssl_certfile,
-            allowed_paths=eval(args.allowed_paths) if args.allowed_paths else None
+            allowed_paths=safe_paths
         )
 
     @staticmethod
     def open_folder(folder_path: str):
-        if os.path.exists(folder_path):
-            os.system(f"start {folder_path}")
+        folder = os.path.abspath(folder_path)
+        os.makedirs(folder, exist_ok=True)
+        if os.name == "nt":
+            os.startfile(folder)  # type: ignore[attr-defined] — Windows-only, no shell interpolation
         else:
-            os.makedirs(folder_path, exist_ok=True)
-            logger.info(f"The directory path {folder_path} has newly created.")
+            logger.info("Folder available at %s", folder)
 
 
 parser = argparse.ArgumentParser()
@@ -922,16 +929,17 @@ parser.add_argument('--whisper_type', type=str, default=WhisperImpl.WHISPERX.val
                     choices=[item.value for item in WhisperImpl],
                     help='A type of the whisper implementation (Github repo name)')
 parser.add_argument('--share', type=str2bool, default=False, nargs='?', const=True, help='Gradio share value')
-parser.add_argument('--server_name', type=str, default=None, help='Gradio server host')
+parser.add_argument('--server_name', type=str, default='127.0.0.1', help='Gradio server host')
 parser.add_argument('--server_port', type=int, default=None, help='Gradio server port')
 parser.add_argument('--root_path', type=str, default=None, help='Gradio root path')
 parser.add_argument('--username', type=str, default=None, help='Gradio authentication username')
 parser.add_argument('--password', type=str, default=None, help='Gradio authentication password')
 parser.add_argument('--theme', type=str, default=None, help='Gradio Blocks theme')
 parser.add_argument('--colab', type=str2bool, default=False, nargs='?', const=True, help='Is colab user or not')
-parser.add_argument('--api_open', type=str2bool, default=True, nargs='?', const=True,
+parser.add_argument('--api_open', type=str2bool, default=False, nargs='?', const=True,
                     help='Enable api or not in Gradio')
-parser.add_argument('--allowed_paths', type=str, default=None, help='Gradio allowed paths')
+parser.add_argument('--allowed_paths', type=str, default=None,
+                    help='JSON array of output subdirectories only; outside paths are rejected')
 parser.add_argument('--inbrowser', type=str2bool, default=True, nargs='?', const=True,
                     help='Whether to automatically start Gradio app or not')
 parser.add_argument('--ssl_verify', type=str2bool, default=True, nargs='?', const=True,
@@ -958,5 +966,7 @@ parser.add_argument('--output_dir', type=str, default=OUTPUT_DIR, help='Director
 _args = parser.parse_args()
 
 if __name__ == "__main__":
+    validate_launch_settings(server_name=_args.server_name, share=_args.share, api_open=_args.api_open)
+    allowed_output_paths(_args.output_dir, _args.allowed_paths)
     app = App(args=_args)
     app.launch()

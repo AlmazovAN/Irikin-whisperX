@@ -127,6 +127,10 @@ class DeepLAPI:
         String to return to gr.Textbox()
         Files to return to gr.Files()
         """
+        auth_key = auth_key or os.environ.get("DEEPL_API_KEY", "")
+        if not auth_key:
+            raise ValueError("DeepL API key is missing. Set DEEPL_API_KEY in local .env or provide a key in the UI.")
+
         if fileobjs and isinstance(fileobjs[0], gr.utils.NamedString):
             fileobjs = [fileobj.name for fileobj in fileobjs]
 

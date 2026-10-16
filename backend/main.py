@@ -4,6 +4,7 @@ from fastapi import (
 )
 from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
+from modules.utils.local_security import LoopbackOnlyASGI
 import os
 import time
 import threading
@@ -72,11 +73,16 @@ app = FastAPI(
 )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]{1,5})?$",
+    allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "PATCH", "OPTIONS"],  # Disable DELETE
     allow_headers=["*"],
 )
+# Defense-in-depth: remote hosts should not access task/audio endpoints even
+# when Uvicorn is accidentally bound to a non-loopback interface.
+# Synthetic TestClient endpoints are allowed only by explicit TEST_ENV.
+app.add_middleware(LoopbackOnlyASGI, test_mode=os.getenv("TEST_ENV", "").lower() == "true")
+
 app.include_router(transcription_router)
 app.include_router(vad_router)
 app.include_router(bgm_separation_router)
