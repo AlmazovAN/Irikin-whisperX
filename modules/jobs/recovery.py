@@ -81,7 +81,7 @@ def _inspect_disk(root: Path, known: set[str]) -> tuple[int, int]:
     return orphans, pending
 
 
-def recover_jobs_under_lock(jobs: JobService) -> RecoveryReport:
+def _recover_jobs_under_lock(jobs: JobService) -> RecoveryReport:
     """Reconcile persisted IN_PROGRESS only while the caller owns worker lock.
 
     A valid published *current-attempt* result is committed as COMPLETED without

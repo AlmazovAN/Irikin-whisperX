@@ -21,7 +21,7 @@ from modules.jobs.inputs import InputSource, InputValidationError, validate_inpu
 from modules.jobs.results import ResultFormatError
 from modules.jobs.artifacts import ArtifactError, publish_result_set
 from modules.jobs.progress import progress_for_stage, stage_index
-from modules.jobs.recovery import RecoveryReport, recover_jobs_under_lock
+from modules.jobs.recovery import RecoveryReport, _recover_jobs_under_lock
 from modules.jobs.service import JobService
 from modules.jobs.storage import JobStorageError
 from modules.jobs.transcription_service import (
@@ -161,7 +161,7 @@ class JobWorker:
             self._lock.acquire()
             try:
                 self._last_recovery = None
-                self._last_recovery = recover_jobs_under_lock(self.jobs)
+                self._last_recovery = _recover_jobs_under_lock(self.jobs)
                 self._stop.clear()
                 self._wake.clear()
                 self._failure_code = None
