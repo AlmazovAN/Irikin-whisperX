@@ -194,3 +194,19 @@ Windows/PyTorch/WhisperX, как договорились, переноситс�
 - Детали: docs/pr17-stage-progress.md, tests/unit/test_persisted_stage_progress.py.
 - GitHub CI и MERGED проверять фактически; запись в ветке не подтверждение merge.
 - Далее: P17 дорожной карты / GitHub PR #18 — атомарные результаты, retention.
+
+### P17 (GitHub PR #18): atomic transcript storage / retention
+
+- База PR17: 3aa6589c606620f8769049ae3695f8ea0d6c69fc.
+- Ветка: feature/pr18-atomic-results-retention.
+- Вместо отдельного JSON/TXT writer для durable job используется атомарная
+  публикация каталога result/attempt-N с manifest.json и SHA-256.
+- \`COMPLETED\` присваивается только после проверки опубликованной пары;
+  локальный \`get_artifact(uuid, format)\` проверяет status, БД и checksum.
+- Retention: сохранять до явного удаления. Никакой фоновой чистки личных
+  аудио/стенограмм по дате нет; orphan-pending оставляем для P18 recovery.
+- Историческая \`backend/records.db\`, Gradio UI и inference неизменны.
+- Подробности: docs/pr18-atomic-artifacts.md.
+- GitHub CI / MERGED смотреть по фактическому статусу PR, не по тексту ветки.
+- Windows/NTFS, real WhisperX/Pyannote, отключение питания — NOT_RUN.
+- Далее P18 дорожной карты / GitHub PR19: restart recovery.
