@@ -5,6 +5,15 @@ A Gradio-based browser interface for [Whisper](https://github.com/openai/whisper
 
 
 
+## Local security (Stage 0 / P04)
+
+This fork is **localhost-only** by default. Public `--share`, `--api_open`
+and non-loopback server addresses are rejected; Gradio paths are limited
+to the configured output folder. Authentication tokens are not persisted
+by YAML/Task writers. See [local security guide](docs/local-security.md).
+Remote/multi-user deployment instructions inherited from upstream are
+not supported by this fork.
+
 ## Windows installation in this fork (Stage 0 / P03)
 
 This fork uses a **profile-based Windows installer**. CPU is the default, including
