@@ -46,7 +46,10 @@ def _valid_attempt(attempt: int) -> None:
 
 
 def _regular_directory(folder: Path) -> None:
-    if folder.is_symlink() or not folder.is_dir():
+    # Refuse a replaced job directory or symlinked result parent as well as a
+    # symlinked published attempt. Do not follow paths outside durable jobs.
+    if (folder.is_symlink() or folder.parent.is_symlink()
+            or folder.parent.parent.is_symlink() or not folder.is_dir()):
         raise ArtifactError("UNSAFE_RESULT_DIR", "Result directory is missing or unsafe")
 
 

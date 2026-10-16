@@ -322,8 +322,8 @@ class JobWorker:
             published = publish_result_set(result, job_dir, attempt=claim.attempt)
             self._finish(
                 claim, success=True,
-                json_file=str(published.files.json_path.relative_to(self.jobs.storage.root)),
-                txt=str(published.files.txt_path.relative_to(self.jobs.storage.root)),
+                json_file=published.files.json_path.relative_to(self.jobs.storage.root).as_posix(),
+                txt=published.files.txt_path.relative_to(self.jobs.storage.root).as_posix(),
             )
         except Exception as exc:
             accepted = (
