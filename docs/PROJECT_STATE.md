@@ -201,11 +201,11 @@ Windows/PyTorch/WhisperX, как договорились, переноситс�
 - Ветка: feature/pr18-atomic-results-retention.
 - Вместо отдельного JSON/TXT writer для durable job используется атомарная
   публикация каталога result/attempt-N с manifest.json и SHA-256.
-- \`COMPLETED\` присваивается только после проверки опубликованной пары;
-  локальный \`get_artifact(uuid, format)\` проверяет status, БД и checksum.
+- `COMPLETED` присваивается только после проверки опубликованной пары;
+  локальный `get_artifact(uuid, format)` проверяет status, БД и checksum.
 - Retention: сохранять до явного удаления. Никакой фоновой чистки личных
   аудио/стенограмм по дате нет; orphan-pending оставляем для P18 recovery.
-- Историческая \`backend/records.db\`, Gradio UI и inference неизменны.
+- Историческая `backend/records.db`, Gradio UI и inference неизменны.
 - Подробности: docs/pr18-atomic-artifacts.md.
 - GitHub CI / MERGED смотреть по фактическому статусу PR, не по тексту ветки.
 - Windows/NTFS, real WhisperX/Pyannote, отключение питания — NOT_RUN.
