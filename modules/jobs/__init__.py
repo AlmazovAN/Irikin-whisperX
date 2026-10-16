@@ -11,6 +11,7 @@ from .transcription_service import (
 
 from .artifacts import ArtifactError, PublishedResult, publish_result_set, verify_result_set
 from .service import JobIntakeError, JobService, JobTicket
+from .recovery import RecoveryError, RecoveryReport
 from .worker import JobWorker, WorkerError
 from .storage import DEFAULT_JOB_ROOT, JobStorage, JobStorageError, StoredAudio
 
@@ -23,6 +24,7 @@ __all__ = (
     "InputKind", "InputLimits", "InputSource", "InputValidationError",
     "ValidatedInput", "validate_input",
     "JobIntakeError", "JobService", "JobTicket",
+    "RecoveryError", "RecoveryReport",
     "ArtifactError", "PublishedResult", "publish_result_set", "verify_result_set",
     "JobWorker", "WorkerError",
     "DEFAULT_JOB_ROOT", "JobStorage", "JobStorageError", "StoredAudio",

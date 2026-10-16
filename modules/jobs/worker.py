@@ -21,6 +21,7 @@ from modules.jobs.inputs import InputSource, InputValidationError, validate_inpu
 from modules.jobs.results import ResultFormatError
 from modules.jobs.artifacts import ArtifactError, publish_result_set
 from modules.jobs.progress import progress_for_stage, stage_index
+from modules.jobs.recovery import RecoveryReport, recover_jobs_under_lock
 from modules.jobs.service import JobService
 from modules.jobs.storage import JobStorageError
 from modules.jobs.transcription_service import (
@@ -132,6 +133,7 @@ class JobWorker:
         self._wake = Event()
         self._thread: Thread | None = None
         self._failure_code: str | None = None
+        self._last_recovery: RecoveryReport | None = None
 
     @property
     def is_running(self) -> bool:
@@ -141,27 +143,25 @@ class JobWorker:
     def failure_code(self) -> str | None:
         return self._failure_code
 
-    def start(self) -> None:
-        """Take exclusive ownership and refuse stale IN_PROGRESS jobs.
+    @property
+    def last_recovery(self) -> RecoveryReport | None:
+        """Summary of locked startup recovery, with no private paths."""
+        return self._last_recovery
 
-        P18 will implement safe restart reconciliation; never silently resume a
-        crashed inference or launch new work alongside a stale claim.
+    def start(self) -> None:
+        """Take exclusive ownership and reconcile crash states before work.
+
+        Verified current-attempt outputs require no re-inference. Incomplete
+        jobs become INTERRUPTED, never silently retried. Recovery failure
+        prevents startup and releases exclusive ownership.
         """
         with self._lifecycle:
             if self.is_running:
                 raise WorkerError("WORKER_BUSY", "Job worker is already running")
             self._lock.acquire()
             try:
-                with closing(self.jobs._connect()) as conn:
-                    running = conn.execute(
-                        "SELECT COUNT(*) FROM tasks WHERE status='IN_PROGRESS' "
-                        "AND task_type='TRANSCRIPTION'"
-                    ).fetchone()[0]
-                if running:
-                    raise WorkerError(
-                        "RECOVERY_REQUIRED",
-                        "Interrupted jobs require recovery before starting the worker",
-                    )
+                self._last_recovery = None
+                self._last_recovery = recover_jobs_under_lock(self.jobs)
                 self._stop.clear()
                 self._wake.clear()
                 self._failure_code = None

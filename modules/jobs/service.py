@@ -251,13 +251,13 @@ class JobService:
                 return cursor.rowcount == 1
 
     def retry(self, identifier: str) -> bool:
-        """P15: requeue an existing FAILED attempt without reupload.
+        """Explicitly requeue FAILED or recovered INTERRUPTED with saved input.
 
-        A running/completed/cancelled job is not retried in this version.
-        P19 adds detailed cleanup and cancellation/retry policy.
+        Never automatically restart interrupted inference. The next claim
+        increments attempt; earlier published artifacts remain unchanged.
         """
         ticket = self.get(identifier)
-        if ticket is None or ticket.status != "FAILED":
+        if ticket is None or ticket.status not in ("FAILED", "INTERRUPTED"):
             return False
         # Explicitly check durable input before changing the queue state.
         try:
@@ -269,8 +269,9 @@ class JobService:
             with conn:
                 cursor = conn.execute("""
                     UPDATE tasks SET status='QUEUED', stage='QUEUED',
-                        error=NULL, error_code=NULL, finished_at=NULL,
-                        progress=0.0, updated_at=?
-                    WHERE uuid=? AND status='FAILED'
+                        error=NULL, error_code=NULL, started_at=NULL,
+                        finished_at=NULL, output_json_path=NULL,
+                        output_txt_path=NULL, progress=0.0, updated_at=?
+                    WHERE uuid=? AND status IN ('FAILED', 'INTERRUPTED')
                 """, (at, identifier))
                 return cursor.rowcount == 1
