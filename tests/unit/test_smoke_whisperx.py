@@ -322,14 +322,15 @@ def test_execute_pipeline_reuses_single_existing_engine_with_exact_preset(monkey
             self.offloaded = False
             made.append(self)
 
-        def run(self, audio, progress, output, add_timestamp, callback, *values):
+        def run(self, audio, progress, output, add_timestamp, callback, *values, persist_settings=True):
+            assert persist_settings is False
             assert output == "txt"
             assert add_timestamp is False
             assert callback is None
             assert len(values) == 4
             whisper, vad, diarization, bgm = values
             assert whisper.model_size == "small"
-            assert whisper.lang == "russian"  # the legacy run() converts to 'ru'
+            assert whisper.lang == "ru"  # canonical MVP code; the pipeline now accepts it
             assert whisper.is_translate is False
             assert whisper.compute_type == "int8"
             assert whisper.batch_size == 1

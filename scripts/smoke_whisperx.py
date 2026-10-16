@@ -156,36 +156,18 @@ def evaluate_segments(segments: list, *, require_diarization: bool) -> dict:
 def execute_pipeline(audio: Path, args: argparse.Namespace) -> dict:
     """One inference instance; call the existing BaseTranscriptionPipeline.run."""
     import gradio as gr
-    import whisper
     import torch
+    from modules.mvp.preset import MVP_PRESET, build_mvp_pipeline_params
     from modules.whisper.whisperx_inference import WhisperXInference
-    from modules.whisper.data_classes import (
-        WhisperParams, VadParams, DiarizationParams, BGMSeparationParams,
-        TranscriptionPipelineParams,
-    )
 
     if args.device == "cuda" and not torch.cuda.is_available():
         raise SmokeBlocked("CUDA was requested but no working CUDA device is detected")
-    # Existing run() expects the *display language name* and converts it to ru
-    # in validate_gradio_values(). Do not pass "ru" directly to that converter.
-    russian = whisper.tokenizer.LANGUAGES["ru"]
     require_diarization = not args.without_diarization
-    params = TranscriptionPipelineParams(
-        whisper=WhisperParams(
-            model_size="small", lang=russian, is_translate=False,
-            compute_type=args.compute_type, batch_size=args.batch_size,
-            enable_whisperx_alignment=True, word_timestamps=False,
-            enable_offload=True,
-        ),
-        vad=VadParams(vad_filter=True),
-        diarization=DiarizationParams(
-            is_diarize=require_diarization,
-            use_whisperx_diarization=require_diarization,
-            diarization_device=args.device, compute_type="float32",
-            hf_token="", assign_word_speakers=require_diarization,
-            enable_offload=True,
-        ),
-        bgm_separation=BGMSeparationParams(is_separate_bgm=False),
+    params = build_mvp_pipeline_params(
+        device=args.device,
+        compute_type=args.compute_type,
+        batch_size=args.batch_size,
+        diarization_enabled=require_diarization,
     )
     started = time.monotonic()
     pipeline = WhisperXInference(
@@ -196,17 +178,19 @@ def execute_pipeline(audio: Path, args: argparse.Namespace) -> dict:
     pipeline.device = args.device
     try:
         segments, elapsed = pipeline.run(
-            str(audio), gr.Progress(), "txt", False, None, *params.to_list()
+            str(audio), gr.Progress(), MVP_PRESET.output_format, False, None,
+            *params.to_list(), persist_settings=False
         )
         validated = evaluate_segments(segments, require_diarization=require_diarization)
         validated["elapsed_pipeline_seconds"] = round(float(elapsed), 2)
         validated["elapsed_total_seconds"] = round(time.monotonic() - started, 2)
         validated["configuration"] = {
             "engine": "existing WhisperXInference.run",
-            "model": "small", "language": "ru", "task": "transcribe",
+            "model": MVP_PRESET.model_size,
+            "language": MVP_PRESET.language, "task": MVP_PRESET.task,
             "device_requested": args.device, "compute_type_requested": args.compute_type,
-            "batch_size": args.batch_size, "vad_enabled": True,
-            "alignment_enabled": True,
+            "batch_size": args.batch_size, "vad_enabled": MVP_PRESET.vad_enabled,
+            "alignment_enabled": MVP_PRESET.alignment_enabled,
             "diarization_requested": require_diarization,
         }
         if args.device == "cuda" and torch.cuda.is_available():
