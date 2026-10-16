@@ -339,3 +339,43 @@ def test_result_format_error_never_marks_completed(env):
     assert failed.error_code == "EMPTY_TRANSCRIPT"
     assert _row(svc, job.identifier)["output_json_path"] is None
     assert svc.saved_input(job.identifier).is_file()
+
+
+def test_symlink_result_directory_is_refused_before_export(env):
+    svc, storage, add = env
+    job = add("symlink")
+    outside = storage.parent.parent / "outside-results"
+    outside.mkdir()
+    folder = storage / job.identifier / "result"
+    try:
+        folder.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("Symlinks unavailable")
+    worker = JobWorker(
+        svc, transcriber_factory=lambda: _FakeASR(lambda _: None),
+        poll_interval=0.01,
+    )
+    worker.start()
+    try:
+        failed = _await_status(svc, job.identifier, "FAILED")
+    finally:
+        assert worker.stop(timeout=5)
+    assert failed.error_code == "UNSAFE_RESULT_DIR"
+    assert list(outside.iterdir()) == []
+
+
+def test_arbitrary_exception_code_is_not_persisted(env):
+    svc, _, add = env
+    job = add("sensitive")
+    class Bad:
+        def transcribe(self, source):
+            exc = RuntimeError("HF token secret should not appear")
+            exc.code = "SENSITIVE_TOKEN_VALUE"
+            raise exc
+    worker = JobWorker(svc, transcriber_factory=Bad, poll_interval=0.01)
+    worker.start()
+    try:
+        failed = _await_status(svc, job.identifier, "FAILED")
+    finally:
+        assert worker.stop(timeout=5)
+    assert failed.error_code == "PROCESSING_FAILED"

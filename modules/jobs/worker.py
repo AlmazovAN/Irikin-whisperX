@@ -11,11 +11,12 @@ from datetime import datetime, timezone
 import logging
 import os
 from pathlib import Path
+import re
 import sqlite3
 from threading import Event, Lock, Thread, current_thread
 from typing import Callable
 
-from modules.jobs.inputs import InputSource, validate_input
+from modules.jobs.inputs import InputSource, InputValidationError, validate_input
 from modules.jobs.results import ResultFormatError, write_result_files
 from modules.jobs.service import JobService
 from modules.jobs.storage import JobStorageError
@@ -262,7 +263,11 @@ class JobWorker:
             source = replace(source, safe_filename=ticket.file_name)
             result = transcriber.transcribe(source)
             output = self.jobs.storage.root / claim.identifier / "result"
-            output.mkdir(parents=True, exist_ok=True)
+            if output.is_symlink():
+                raise WorkerError("UNSAFE_RESULT_DIR", "Result directory is unsafe")
+            output.mkdir(parents=True, exist_ok=True, mode=0o700)
+            if not output.resolve(strict=True).is_relative_to(self.jobs.storage.root):
+                raise WorkerError("UNSAFE_RESULT_DIR", "Result directory escapes job storage")
             stem = "transcript" if claim.attempt == 1 else f"transcript-{claim.attempt}"
             files = write_result_files(result, output, stem=stem)
             # Store only trusted relative locators. A complete pair is mandatory.
@@ -274,14 +279,18 @@ class JobWorker:
                 txt=str(files.txt_path.relative_to(self.jobs.storage.root)),
             )
         except Exception as exc:
-            code = getattr(exc, "code", "PROCESSING_FAILED")
-            if not isinstance(code, str) or not code.isidentifier():
+            accepted = (
+                TranscriptionServiceError, InputValidationError,
+                JobStorageError, ResultFormatError, WorkerError,
+            )
+            code = getattr(exc, "code", None) if isinstance(exc, accepted) else None
+            if not isinstance(code, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]{1,63}", code):
                 code = "PROCESSING_FAILED"
             # Never persist arbitrary exception strings (paths/tokens/audio).
             try:
                 self._finish(claim, success=False, error_code=code)
             except Exception:
-                logger.exception("Worker failed to record job failure status")
+                logger.error("Worker could not persist FAILED; recovery required")
                 raise
 
     def _run(self) -> None:
@@ -304,6 +313,6 @@ class JobWorker:
                 self._process(claim, transcriber)
         except Exception:
             self._failure_code = "WORKER_STOPPED"
-            logger.exception("Single job worker stopped; reconciliation required")
+            logger.error("Single job worker stopped; recovery required")
         finally:
             self._lock.release()
