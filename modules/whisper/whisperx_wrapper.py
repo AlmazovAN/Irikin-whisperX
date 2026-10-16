@@ -153,7 +153,8 @@ class WhisperXWrapper:
                         start=word.get("start"),
                         end=word.get("end"),
                         word=word.get("word") or word.get("text"),
-                        probability=word.get("score") or word.get("probability"),
+                        probability=(word.get("score") if word.get("score") is not None
+                                     else word.get("probability")),
                         speaker=word.get("speaker"),
                     )
                 )
