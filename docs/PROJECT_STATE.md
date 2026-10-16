@@ -147,3 +147,19 @@ Windows/PyTorch/WhisperX, как договорились, переноситс�
 После принятия P13 начать P14 по плану (предположительно GitHub PR #15):
 атомарный приём входа в data/jobs/<uuid>/input с отметкой QUEUED,
 не полагаясь на временный путь Gradio. Не запускать inference из upload.
+
+### P14 (GitHub PR #15): durable audio intake
+
+- Базовый master: 1b862556a5bd29cccfdd07297b4eef889d3da07e.
+- Ветка: feature/pr15-durable-intake.
+- Добавлены modules/jobs/storage.py и modules/jobs/service.py:
+  InputSource → P08 FFprobe → data/jobs/<uuid>/input → SQLite QUEUED.
+- Новая локальная БД data/jobs/jobs.sqlite3; старый backend/records.db не изменён.
+- Предусмотрены атомарная публикация файла, повторная проверка,
+  очистка при известном сбое до принятия, безопасные UUID и отсутствие
+  секретов/путей в JobTicket.
+- Подробности docs/pr15-durable-intake.md.
+- Статус PR15 и CI всегда проверять по GitHub; не считать merge доказанным
+  лишь по наличию этих строк в ветке.
+- Реальный Windows/CPU/Gradio upload: NOT_RUN.
+- Следующий функциональный PR: P15 плана / GitHub PR #16 — один worker FIFO.
