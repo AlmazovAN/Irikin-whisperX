@@ -14,6 +14,7 @@ from typing import Sequence
 from uuid import UUID, uuid4
 
 from backend.db.task.migrations import migrate_task_database
+from modules.jobs.artifacts import ArtifactError, verify_result_set
 from modules.jobs.inputs import (
     InputLimits, InputSource, InputValidationError, validate_input,
 )
@@ -159,6 +160,36 @@ class JobService:
             progress=float(row["progress"] or 0.0), updated_at=row["updated_at"],
             started_at=row["started_at"], finished_at=row["finished_at"],
         )
+
+    def get_artifact(self, identifier: str, *, format: str) -> Path:
+        """Resolve verified completed transcript for trusted local server code.
+
+        Browser-supplied paths/names are never accepted; derive from UUID/DB.
+        """
+        if format not in ("json", "txt"):
+            raise JobIntakeError("INVALID_ARTIFACT_FORMAT", "Choose json or txt")
+        try:
+            if str(UUID(identifier)) != identifier:
+                raise ValueError("Noncanonical identifier")
+        except (TypeError, ValueError, AttributeError):
+            raise JobIntakeError("JOB_NOT_FOUND", "Job does not exist") from None
+        with closing(self._connect()) as conn:
+            row = conn.execute("""
+                SELECT status, attempt, output_json_path, output_txt_path
+                FROM tasks WHERE uuid=? AND task_type='TRANSCRIPTION'
+            """, (identifier,)).fetchone()
+        if row is None:
+            raise JobIntakeError("JOB_NOT_FOUND", "Job does not exist")
+        if row["status"] != "COMPLETED":
+            raise JobIntakeError("ARTIFACT_NOT_READY", "Job has no completed result")
+        attempt = int(row["attempt"])
+        folder = self.storage.root / identifier / "result" / f"attempt-{attempt}"
+        published = verify_result_set(folder, attempt=attempt)
+        paths = {"json": published.files.json_path, "txt": published.files.txt_path}
+        for label, column in (("json", "output_json_path"), ("txt", "output_txt_path")):
+            if row[column] != paths[label].relative_to(self.storage.root).as_posix():
+                raise ArtifactError("RESULT_CORRUPT", "Stored artifact locator disagrees")
+        return paths[format]
 
     def get_status(self, identifier: str) -> JobTicket | None:
         """Retrieve a fresh SQLite status snapshot independent of browser sessions."""

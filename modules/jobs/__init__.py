@@ -9,6 +9,7 @@ from .transcription_service import (
     TranscriptionResult, TranscriptionService, TranscriptionServiceError,
 )
 
+from .artifacts import ArtifactError, PublishedResult, publish_result_set, verify_result_set
 from .service import JobIntakeError, JobService, JobTicket
 from .worker import JobWorker, WorkerError
 from .storage import DEFAULT_JOB_ROOT, JobStorage, JobStorageError, StoredAudio
@@ -22,6 +23,7 @@ __all__ = (
     "InputKind", "InputLimits", "InputSource", "InputValidationError",
     "ValidatedInput", "validate_input",
     "JobIntakeError", "JobService", "JobTicket",
+    "ArtifactError", "PublishedResult", "publish_result_set", "verify_result_set",
     "JobWorker", "WorkerError",
     "DEFAULT_JOB_ROOT", "JobStorage", "JobStorageError", "StoredAudio",
     "TranscriptionResult", "TranscriptionService", "TranscriptionServiceError",

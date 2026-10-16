@@ -18,7 +18,8 @@ from threading import Event, Lock, Thread, current_thread
 from typing import Callable
 
 from modules.jobs.inputs import InputSource, InputValidationError, validate_input
-from modules.jobs.results import ResultFormatError, write_result_files
+from modules.jobs.results import ResultFormatError
+from modules.jobs.artifacts import ArtifactError, publish_result_set
 from modules.jobs.progress import progress_for_stage, stage_index
 from modules.jobs.service import JobService
 from modules.jobs.storage import JobStorageError
@@ -315,26 +316,19 @@ class JobWorker:
             source = replace(source, safe_filename=ticket.file_name)
             result = transcriber.transcribe(source, **self._callbacks_for(transcriber, claim))
             self._record_stage(claim, "EXPORT")
-            output = self.jobs.storage.root / claim.identifier / "result"
-            if output.is_symlink():
-                raise WorkerError("UNSAFE_RESULT_DIR", "Result directory is unsafe")
-            output.mkdir(parents=True, exist_ok=True, mode=0o700)
-            if not output.resolve(strict=True).is_relative_to(self.jobs.storage.root):
-                raise WorkerError("UNSAFE_RESULT_DIR", "Result directory escapes job storage")
-            stem = "transcript" if claim.attempt == 1 else f"transcript-{claim.attempt}"
-            files = write_result_files(result, output, stem=stem)
-            # Store only trusted relative locators. A complete pair is mandatory.
-            if not files.json_path.is_file() or not files.txt_path.is_file():
-                raise WorkerError("EXPORT_FAILED", "One or more transcript files are missing")
+            job_dir = self.jobs.storage.root / claim.identifier
+            # Atomically reveal JSON, TXT and their checksum manifest together.
+            # No COMPLETED transition until the full bundle has been verified.
+            published = publish_result_set(result, job_dir, attempt=claim.attempt)
             self._finish(
                 claim, success=True,
-                json_file=str(files.json_path.relative_to(self.jobs.storage.root)),
-                txt=str(files.txt_path.relative_to(self.jobs.storage.root)),
+                json_file=published.files.json_path.relative_to(self.jobs.storage.root).as_posix(),
+                txt=published.files.txt_path.relative_to(self.jobs.storage.root).as_posix(),
             )
         except Exception as exc:
             accepted = (
                 TranscriptionServiceError, InputValidationError,
-                JobStorageError, ResultFormatError, WorkerError,
+                JobStorageError, ResultFormatError, ArtifactError, WorkerError,
             )
             code = getattr(exc, "code", None) if isinstance(exc, accepted) else None
             if not isinstance(code, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]{1,63}", code):
