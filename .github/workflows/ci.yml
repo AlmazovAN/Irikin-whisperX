@@ -12,10 +12,8 @@ on:
     branches:
       - master
       - intel-gpu
+  # Stacked PRs target feature branches; fast checks must run on those too.
   pull_request:
-    branches:
-      - master
-      - intel-gpu
 
 jobs:
   fast-checks:
