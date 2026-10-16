@@ -1,7 +1,4 @@
 @echo off
-
-call venv\scripts\activate
-python app.py %*
-
-echo "launching the app"
-pause
+setlocal
+call "%~dp0Start.bat" %*
+exit /b %ERRORLEVEL%
