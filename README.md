@@ -123,7 +123,7 @@ After installing FFmpeg, **make sure to add the `FFmpeg/bin` folder to your syst
 
 1. git clone this repository
 ```shell
-git clone https://github.com/chboishabba/WhisperX-WebUI.git
+git clone https://github.com/AlmazovAN/Irikin-whisperX.git
 ```
 2. On Windows use `Install.bat --profile cpu` (or `--profile cuda126` for NVIDIA); on Linux/macOS `Install.sh` retains the legacy path. The Windows installer protects existing `venv` and reports errors.
 3. Start WebUI with `start-webui.bat` or `start-webui.sh` (It will run `python app.py` after activating the venv)
@@ -132,10 +132,10 @@ And you can also run the project with command line arguments if you like to, see
 
 ### Entry points & scripts
 
-- `start-webui.sh` / `start-webui.bat` activates the venv and forwards any CLI args to `app.py`.
+- `start-webui.sh` / `start-webui.bat` activates the venv and forwards CLI args to `app.py`.
 - `user-start-webui.bat` is a Windows-friendly way to set common CLI args before calling `start-webui.bat`.
-- `Install.sh` / `Install.bat` creates a `venv`, installs the patched OpenAI Whisper dependency via `scripts/install_openai_whisper.py`, and then installs `requirements.txt`.
-- `scripts/install_openai_whisper.py` clones `openai/whisper` and installs it without pulling extra dependencies.
+- `Install.sh` retains the legacy Linux/macOS path. Windows `Install.bat` runs `scripts/install_windows.py`, selects a CPU/CUDA wheel profile, protects existing `venv` and then installs `requirements.txt`.
+- `scripts/install_openai_whisper.py` is used by the legacy Linux/macOS `Install.sh`; the Windows P03 installer uses the pinned `openai-whisper` package.
 
 ### Common CLI flags
 
