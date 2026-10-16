@@ -34,14 +34,24 @@ class TranscriptionServiceError(RuntimeError):
 
 
 class HeadlessProgress:
-    """The legacy pipeline expects a callable Gradio progress object.
+    """Consume trusted stage events from existing Gradio-style progress calls.
 
-    Only its callable interface is used by the reused WhisperX pipeline. It
-    deliberately emits no browser events and makes no ETA claims.
+    This emits only known canonical stage identifiers, never arbitrary text,
+    browser updates or ETAs. Duplicate consecutive events are coalesced.
     """
 
+    def __init__(self, stage_callback: Callable[[str], None] | None = None):
+        self._stage_callback = stage_callback
+        self._last_stage: str | None = None
+
     def __call__(self, value: float | int, *, desc: str | None = None) -> None:
-        pass
+        from modules.jobs.progress import stage_from_description
+
+        stage = stage_from_description(desc)
+        if stage is not None and stage != self._last_stage:
+            self._last_stage = stage
+            if self._stage_callback is not None:
+                self._stage_callback(stage)
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,6 +148,7 @@ class TranscriptionService:
         batch_size: int = MVP_PRESET.default_batch_size,
         diarization_enabled: bool = MVP_PRESET.diarization_enabled,
         progress_callback: Callable[[float], None] | None = None,
+        stage_callback: Callable[[str], None] | None = None,
     ) -> TranscriptionResult:
         """Call BaseTranscriptionPipeline.run without a Gradio request/session.
 
@@ -151,6 +162,8 @@ class TranscriptionService:
         )
         if progress_callback is not None and not callable(progress_callback):
             raise TypeError("progress_callback must be callable")
+        if stage_callback is not None and not callable(stage_callback):
+            raise TypeError("stage_callback must be callable")
         if diarization_enabled:
             try:
                 require_hf_token(os.environ.get("HF_TOKEN"))
@@ -166,7 +179,7 @@ class TranscriptionService:
                 pipeline = self._pipeline
                 pipeline.device = device
                 raw, elapsed = pipeline.run(
-                    str(source_path), HeadlessProgress(), MVP_PRESET.output_format,
+                    str(source_path), HeadlessProgress(stage_callback), MVP_PRESET.output_format,
                     False, progress_callback, *params.to_list(),
                     persist_settings=False, strict_vad=True,
                 )

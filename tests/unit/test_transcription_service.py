@@ -290,3 +290,36 @@ def test_two_speakers_fixture_keeps_independent_labels(valid_source):
     assert {seg.speaker for seg in result.segments} == {"SPEAKER_00", "SPEAKER_01"}
     assert result.segments[0].words[0].speaker == "SPEAKER_00"
     assert result.segments[1].words[0].speaker == "SPEAKER_01"
+
+
+def test_real_transcription_adapter_emits_stages_without_changing_asr_callback(valid_source):
+    """Check the actual TranscriptionService boundary, with a fake pipeline."""
+    class EmittingPipeline(FakePipeline):
+        def run(self, path, progress, output_format, timestamp, callback, *params,
+                persist_settings=True, strict_vad=False):
+            assert strict_vad
+            progress(0.0, desc="Filtering silent parts from audio..")
+            progress(0.0, desc="Transcribing with WhisperX..")
+            if callback:
+                callback(0.3)
+            progress(0.95, desc="Aligning with WhisperX..")
+            progress(0.99, desc="Diarizing speakers..")
+            progress(1.0, desc="Finished.")
+            return self.segments, self.elapsed
+    pipeline = EmittingPipeline()
+    stages, asr_updates = [], []
+    service = TranscriptionService(pipeline_factory=lambda: pipeline)
+    result = service.transcribe(
+        valid_source, progress_callback=asr_updates.append,
+        stage_callback=stages.append,
+    )
+    assert stages == ["VAD", "ASR", "ALIGN", "DIARIZE"]
+    assert asr_updates == [0.3]
+    assert result.model_size == "small"
+    assert pipeline.offloads == 1
+
+
+def test_noncallable_stage_callback_is_rejected(valid_source):
+    service = TranscriptionService(pipeline_factory=FakePipeline)
+    with pytest.raises(TypeError, match="stage_callback"):
+        service.transcribe(valid_source, stage_callback=123)

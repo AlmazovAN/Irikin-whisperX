@@ -41,6 +41,10 @@ class JobTicket:
     created_at: str
     attempt: int = 0
     error_code: str | None = None
+    progress: float = 0.0
+    updated_at: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
 
 
 class JobService:
@@ -128,7 +132,7 @@ class JobService:
         return JobTicket(
             job_id, "QUEUED", "QUEUED", saved.source.safe_filename,
             MVP_PRESET.model_size, MVP_PRESET.language,
-            saved.source.duration_seconds, created,
+            saved.source.duration_seconds, created, updated_at=created,
         )
 
     def get(self, identifier: str) -> JobTicket | None:
@@ -140,7 +144,8 @@ class JobService:
         with closing(self._connect()) as conn:
             row = conn.execute("""
                 SELECT uuid, status, stage, file_name, model_name,
-                       language, audio_duration, created_at, attempt, error_code
+                       language, audio_duration, created_at, attempt, error_code,
+                       progress, updated_at, started_at, finished_at
                 FROM tasks WHERE uuid=?
             """, (identifier,)).fetchone()
         if row is None:
@@ -151,7 +156,13 @@ class JobService:
             language=row["language"], audio_duration=row["audio_duration"],
             created_at=row["created_at"], attempt=int(row["attempt"]),
             error_code=row["error_code"],
+            progress=float(row["progress"] or 0.0), updated_at=row["updated_at"],
+            started_at=row["started_at"], finished_at=row["finished_at"],
         )
+
+    def get_status(self, identifier: str) -> JobTicket | None:
+        """Retrieve a fresh SQLite status snapshot independent of browser sessions."""
+        return self.get(identifier)
 
     def saved_input(self, identifier: str) -> Path:
         """Internal-only locator for P15 worker; never surface the path in UI."""
@@ -174,7 +185,8 @@ class JobService:
         with closing(self._connect()) as conn:
             rows = conn.execute("""
                 SELECT uuid, status, stage, file_name, model_name, language,
-                       audio_duration, created_at, attempt, error_code
+                       audio_duration, created_at, attempt, error_code,
+                       progress, updated_at, started_at, finished_at
                 FROM tasks WHERE task_type='TRANSCRIPTION'
                 ORDER BY id DESC LIMIT ?
             """, (limit,)).fetchall()
@@ -184,7 +196,9 @@ class JobService:
                 file_name=row["file_name"], model_name=row["model_name"],
                 language=row["language"], audio_duration=row["audio_duration"],
                 created_at=row["created_at"], attempt=int(row["attempt"]),
-                error_code=row["error_code"],
+                error_code=row["error_code"], progress=float(row["progress"] or 0.0),
+                updated_at=row["updated_at"], started_at=row["started_at"],
+                finished_at=row["finished_at"],
             ) for row in rows
         )
 
