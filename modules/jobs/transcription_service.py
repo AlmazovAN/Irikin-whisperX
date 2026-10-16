@@ -46,7 +46,7 @@ class HeadlessProgress:
 
 @dataclass(frozen=True, slots=True)
 class TranscriptionResult:
-    """Existing Segment objects, unchanged; normalized JSON belongs to P12."""
+    """Existing Segment objects, unchanged; PR13 offers explicit normalized export."""
 
     segments: tuple[Segment, ...]
     elapsed_seconds: float

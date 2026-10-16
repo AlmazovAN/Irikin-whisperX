@@ -25,7 +25,6 @@ class Segment(BaseModel):
     text: Optional[str] = Field(default=None, description="Transcription text of the segment")
     start: Optional[float] = Field(default=None, description="Start time of the segment")
     end: Optional[float] = Field(default=None, description="End time of the segment")
-    speaker: Optional[str] = Field(default=None, description="Speaker label for the segment")
     tokens: Optional[List[int]] = Field(default=None, description="List of token IDs")
     temperature: Optional[float] = Field(default=None, description="Temperature used during the decoding process")
     avg_logprob: Optional[float] = Field(default=None, description="Average log probability of the tokens")
