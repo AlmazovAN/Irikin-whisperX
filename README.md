@@ -5,6 +5,29 @@ A Gradio-based browser interface for [Whisper](https://github.com/openai/whisper
 
 
 
+## Windows manual smoke-test and ADR-001 (Stage 0 / P06)
+
+The diagnostic `scripts/smoke_whisperx.py` runs the **existing**
+`WhisperXInference.run()` pipeline in a single process using Small, Russian,
+VAD, forced alignment and (by default) speaker diarization. A genuine
+`PASS` requires nonempty recognized text, aligned word timestamps and
+speaker labels. Without diarization the result is deliberately `PARTIAL`,
+not `PASS`. It does not install packages, upload audio or store transcript
+content in the diagnostics.
+
+```bat
+venv\Scripts\python.exe scripts\smoke_whisperx.py --diagnose-only
+venv\Scripts\python.exe scripts\smoke_whisperx.py --audio "C:\audio\short_russian.wav"
+```
+
+The first command only checks prerequisites; the second can download model
+weights on first run and may fail on 8 GiB RAM. **No real Windows audio
+smoke-test has been completed as part of this PR.** You may defer manual
+acceptance until the MVP UI is usable. See
+[Windows smoke-test protocol](docs/smoke-test-windows.md),
+[ADR-001 — single worker](docs/adr/ADR-001-single-worker.md) and the
+[Stage 0 acceptance report](docs/stage0-acceptance.md).
+
 ## Windows double-click launcher (Stage 0 / P05)
 
 After installing the CPU or NVIDIA environment using `Install.bat`, open

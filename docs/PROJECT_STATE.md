@@ -13,7 +13,7 @@
 | P03 | [DRAFT, PR #3](https://github.com/AlmazovAN/Irikin-whisperX/pull/3); ожидает Windows-тестов | `feature/p03-windows-install` | CPU/NVIDIA wheel-профили, кандидатные pin-версии, защитный установщик, unit-тесты |
 | P04 | [DRAFT, PR #4](https://github.com/AlmazovAN/Irikin-whisperX/pull/4); ожидает тестирования | `fix/p04-local-security` | Loopback Gradio/FastAPI, безопасные пути, очистка секретов YAML/Task, .env |
 | P05 | [DRAFT, PR #5](https://github.com/AlmazovAN/Irikin-whisperX/pull/5); Windows-приёмка отложена | `feature/p05-windows-launcher` | Start.bat, одиночный сервер Gradio, preflight, HTTP readiness, локальные логи, тесты |
-| P06 | PLANNED | — | Реальный smoke-test и ADR |
+| P06 | [DRAFT, PR #6](https://github.com/AlmazovAN/Irikin-whisperX/pull/6); smoke на Windows не подтверждён | `test/p06-smoke-adr` | CLI smoke WhisperX Small ru, диагностический отчёт, ADR-001, финальный аудит этапа |
 
 ### Не проверено на P01
 
@@ -63,3 +63,13 @@
 - Локальная изолированная проверка `tests/unit/test_windows_launcher.py`: **26 passed**; Python 3.13 Linux, с mocked subprocess/HTTP, без настоящего WebUI. **Это не проверка Windows CMD/CTRL_BREAK**.
 - Файл `.github/workflows/ci.yml` теперь допускает CI на stacked PR (любая целевая ветка). Фактический статус GitHub Actions проверять отдельно.
 - Полное функциональное тестирование на Windows и реальный аудио smoke-test остаются до P06 / приёмки этапа.
+
+### P06 — ручной smoke-test, архитектура и закрытие кодового пакета
+
+- Базовая ветка P06: `feature/p05-windows-launcher`. PR #1–#5 ещё не слиты в `master`, слияния остаются отложены до ревью/проверок.
+- `scripts/smoke_whisperx.py` использует **существующий** `WhisperXInference.run()`, модель `small`, русский `ru`, `transcribe`, VAD + alignment + требуемые speaker labels. Реальный тест требует частный WAV/MP3 и доступ к Pyannote.
+- `--diagnose-only` без скачивания моделей и без обработки файла; критерии `passed` / `partial` / `blocked` / `failed` явно различены. В отчёте нет текста распознавания и токена.
+- `tests/unit/test_smoke_whisperx.py` содержит **автономные тесты** валидации, отчёта, ошибочных случаев и mock-проверку прямого вызова унаследованного конвейера. Проверка в CI и на целевой Windows **пока не подтверждена**.
+- ADR-001 принят как дизайн: один Python-сервер, общий сервис заданий, один inference-owner/worker, durable SQLite и atomic артефакты. Реализация JobService, TXT/JSON и независимости от вкладки запланирована на P07–P25.
+- Ручной real-audio smoke на ноутбуке Windows/Ryzen/8 ГБ **NOT_RUN**, аппаратная/пакетная совместимость `small` + alignment + Pyannote **UNKNOWN**. Пользовательская приёмка по текущему процессу отложена до MVP.
+- Итоговый файл передачи: [`docs/stage0-acceptance.md`](stage0-acceptance.md). Для теста: [`docs/smoke-test-windows.md`](smoke-test-windows.md). Для архитектуры: [`docs/adr/ADR-001-single-worker.md`](adr/ADR-001-single-worker.md).
