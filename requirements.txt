@@ -1,35 +1,26 @@
---extra-index-url https://download.pytorch.org/whl/cu126
+# P03 compatibility candidate. This is NOT a full transitive lock.
+# Supported installation: Install.bat (CPU by default, optional NVIDIA CUDA 12.6).
+# Manual pip installs may select a different torch wheel platform build.
+-r requirements/torch.txt
 
-# Update above --extra-index-url according to your device.
+# Existing Whisper-WebUI and WhisperX pipeline functionality
+openai-whisper==20240930
+python-dotenv==1.1.1
+numpy==2.2.6
+sounddevice==0.5.2
+faster-whisper==1.1.1
+ctranslate2==4.4.0
+transformers==4.51.3
+gradio==5.49.1
+gradio-i18n==0.3.4
+pytubefix>=9,<11
+ruamel.yaml>=0.18.10,<0.19
+sqlmodel>=0.0.24,<0.1
+pyannote.audio==3.4.0
+whisperx==3.4.2
+jiwer>=3.1,<5
+onnxruntime==1.20.1
 
-## Nvidia GPU
-# CUDA 12.6 : https://download.pytorch.org/whl/cu126
-# CUDA 12.8 : https://download.pytorch.org/whl/cu128
-
-## Intel GPU
-# https://download.pytorch.org/whl/xpu
-
-openai_whisper
-dotenv
-torch
-# Numba requires NumPy < 2.3; Whisper pulls numba for word timings.
-numpy<2.3
-# torchaudio 2.8+ removed AudioMetaData which our diarization pipeline imports
-torchaudio
-sounddevice
-openai-whisper
-faster-whisper
-ctranslate2
-transformers
-gradio
-gradio-i18n
-pytubefix
-ruamel.yaml
-sqlmodel
-pyannote.audio
-openai_whisper
-whisperx
-jiwer
-onnxruntime-gpu
-git+https://github.com/jhj0517/ultimatevocalremover_api.git
-git+https://github.com/jhj0517/pyrubberband.git
+# Legacy BGM/UVR support: source revisions pinned, transitive dependencies not locked.
+uvr @ git+https://github.com/jhj0517/ultimatevocalremover_api.git@3543be1349ce601568787b69cca0c1f8acba7c2e
+pyrubberband @ git+https://github.com/jhj0517/pyrubberband.git@0287782593eabd77fcf29682899d3e9b25cbb5c6
