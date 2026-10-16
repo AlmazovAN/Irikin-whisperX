@@ -23,7 +23,8 @@ def test_two_step_install_is_explicitly_index_scoped():
 
 def test_cuda_has_explicit_pytorch_index():
     commands = installer.install_steps(Path("C:/a/venv/Scripts/python.exe"), "cuda126")
-    assert "cu126" in commands[0]
+    assert "--index-url" in commands[0]
+    assert commands[0][commands[0].index("--index-url") + 1].endswith("/cu126")
 
 
 def test_dry_run_does_not_execute_or_modify(monkeypatch, tmp_path, capsys):
