@@ -2,7 +2,12 @@ name: CI
 
 on:
   workflow_dispatch:
-
+    inputs:
+      run_heavy:
+        description: "Run legacy integration tests (large dependencies, network and models)"
+        type: boolean
+        required: true
+        default: false
   push:
     branches:
       - master
@@ -13,89 +18,73 @@ on:
       - intel-gpu
 
 jobs:
-  test:
+  fast-checks:
+    name: Fast offline checks / Python ${{ matrix.python }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
+      fail-fast: false
       matrix:
         python: ["3.10", "3.11", "3.12"]
 
-    env:
-      DEEPL_API_KEY: ${{ secrets.DEEPL_API_KEY }}
-
     steps:
-      - name: Clean up space for action
-        run: rm -rf /opt/hostedtoolcache
-
       - uses: actions/checkout@v4
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      - name: Install lightweight test runner
+        run: python -m pip install pytest
+      - name: Check Python syntax (no imports or model downloads)
+        run: python -m compileall -q app.py backend modules scripts tests
+      - name: Check shell script syntax
+        run: bash -n Install.sh start-webui.sh
+      - name: Run offline unit tests only
+        run: python -m pytest -q tests/unit
 
-      - name: Install git and ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y git ffmpeg
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt pytest jiwer
-
-      - name: Run test
-        run: python -m pytest -rs tests
-
-  test-backend:
+  # Legacy integration tests are intentionally opt-in. They install the full
+  # inference stack and may download audio, models or other external resources.
+  legacy-webui:
+    name: Legacy WebUI / Python ${{ matrix.python }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_heavy }}
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python: ["3.10", "3.11", "3.12"]
-
     env:
       DEEPL_API_KEY: ${{ secrets.DEEPL_API_KEY }}
-      TEST_ENV: true
-
     steps:
-      - name: Clean up space for action
-        run: rm -rf /opt/hostedtoolcache
-
       - uses: actions/checkout@v4
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install inference dependencies
+        run: python -m pip install -r requirements.txt pytest jiwer
+      - name: Run legacy WebUI tests
+        run: python -m pytest -rs tests --ignore=tests/unit
 
-      - name: Install git and ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y git ffmpeg
-
-      - name: Install dependencies
-        run: pip install -r backend/requirements-backend.txt pytest pytest-asyncio jiwer
-
-      - name: Run test
+  legacy-backend:
+    name: Legacy backend / Python ${{ matrix.python }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_heavy }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12"]
+    env:
+      TEST_ENV: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install backend dependencies
+        run: python -m pip install -r backend/requirements-backend.txt pytest pytest-asyncio jiwer
+      - name: Run legacy backend tests
         run: python -m pytest -rs backend/tests
-
-  test-shell-script:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python: [ "3.10", "3.11", "3.12" ]
-
-    steps:
-      - name: Clean up space for action
-        run: rm -rf /opt/hostedtoolcache
-
-      - uses: actions/checkout@v4
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python }}
-
-      - name: Install git and ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y git ffmpeg
-
-      - name: Execute Install.sh
-        run: |
-          chmod +x ./Install.sh
-          ./Install.sh
-
-      - name: Execute start-webui.sh
-        run: |
-          chmod +x ./start-webui.sh
-          timeout 60s ./start-webui.sh || true
-
