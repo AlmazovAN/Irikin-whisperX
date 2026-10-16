@@ -8,6 +8,7 @@ from datetime import datetime
 from sqlalchemy.types import Enum as SQLAlchemyEnum
 from typing import Any
 from sqlmodel import SQLModel, Field, JSON, Column
+from modules.utils.local_security import redact_config_secrets
 
 
 class ResultType(str, Enum):
@@ -172,7 +173,7 @@ class Task(SQLModel, table=True):
             task_type=self.task_type,
             result_type=self.result_type,
             result=self.result,
-            task_params=self.task_params,
+            task_params=redact_config_secrets(self.task_params),
             error=self.error,
             duration=self.duration,
             progress=self.progress
