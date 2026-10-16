@@ -33,3 +33,17 @@ chatgpt_history*.sqlite*-wal
 chatgpt_history*.sqlite*-shm
 codex_history*.sqlite*-wal
 codex_history*.sqlite*-shm
+
+# P04: secrets and durable runtime data (ignore does not untrack existing files)
+.env
+.env.*
+**/.env.*
+!.env.example
+!**/.env.example
+data/
+logs/
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+*.db-journal
