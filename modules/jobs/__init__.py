@@ -10,6 +10,7 @@ from .transcription_service import (
 )
 
 from .service import JobIntakeError, JobService, JobTicket
+from .worker import JobWorker, WorkerError
 from .storage import DEFAULT_JOB_ROOT, JobStorage, JobStorageError, StoredAudio
 
 from .results import (
@@ -21,6 +22,7 @@ __all__ = (
     "InputKind", "InputLimits", "InputSource", "InputValidationError",
     "ValidatedInput", "validate_input",
     "JobIntakeError", "JobService", "JobTicket",
+    "JobWorker", "WorkerError",
     "DEFAULT_JOB_ROOT", "JobStorage", "JobStorageError", "StoredAudio",
     "TranscriptionResult", "TranscriptionService", "TranscriptionServiceError",
     "ResultFiles", "ResultFormatError", "SCHEMA_VERSION", "build_result_payload",

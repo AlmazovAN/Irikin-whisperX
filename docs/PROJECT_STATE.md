@@ -163,3 +163,19 @@ Windows/PyTorch/WhisperX, как договорились, переноситс�
   лишь по наличию этих строк в ветке.
 - Реальный Windows/CPU/Gradio upload: NOT_RUN.
 - Следующий функциональный PR: P15 плана / GitHub PR #16 — один worker FIFO.
+
+### P15 (GitHub PR #16): один worker + FIFO
+
+- Base SHA: cb7f3eef29a3b64f19245c7d4015223ddecd807d.
+- Ветка: feature/pr16-single-fifo-worker.
+- Добавлен modules/jobs/worker.py: один lock-holder, один процесс
+  обработки в фоне (thread), FIFO SQLite, запуск TranscriptionService.
+- Расширен JobService: list_jobs, отмена только QUEUED, retry FAILED.
+- Результаты PR13 writer создаются до COMPLETED; P17 ещё должен
+  обеспечить полную атомарность артефактов.
+- Worker пока **не** включён одновременно с legacy Gradio App, чтобы не
+  создать два независимых ASR-owner. См. docs/pr16-single-worker.md.
+- Автоматические тесты tests/unit/test_single_job_worker.py.
+- Проверять фактический MERGED / CI на GitHub: запись в ветке не доказательство.
+- Windows/CPU/Pyannote и browser E2E NOT_RUN.
+- Следующий PR: план P16 / GitHub PR #17 — стадии и статус polling.
