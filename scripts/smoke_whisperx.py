@@ -12,7 +12,6 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
-import platform
 import shutil
 import subprocess
 import sys
@@ -75,8 +74,6 @@ def prerequisites(report: dict, *, device: str, require_diarization: bool) -> li
         failures.append("This smoke acceptance targets Windows; other OS does not validate it")
     packages = report.get("packages", {})
     for package in REQUIRED_PACKAGES:
-        if package == "pyannote.audio" and not require_diarization:
-            continue
         if packages.get(package, {}).get("status") != "installed":
             failures.append(f"Missing or broken package: {package}")
     torch_info = report.get("torch", {})
@@ -255,8 +252,9 @@ def sanitized_environment(report: dict) -> dict:
     }
 
 
-def save_report(payload: dict, *, root: Path = ROOT) -> Path:
-    logs = root / "logs"
+def save_report(payload: dict, *, root: Path | None = None) -> Path:
+    base = root if root is not None else ROOT
+    logs = base / "logs"
     logs.mkdir(parents=True, exist_ok=True)
     name = "smoke-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
     path = logs / (name + ".json")
@@ -280,6 +278,7 @@ def main(argv: list[str] | None = None) -> int:
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "status": "blocked",
         "actual_inference_performed": False,
+        "inference_attempted": False,
         "diarization_required": not args.without_diarization,
         "stages": {
             "vad": "not_run", "asr": "not_run",
@@ -313,6 +312,7 @@ def main(argv: list[str] | None = None) -> int:
                 "diarization": "requested" if not args.without_diarization else "skipped",
             }
             # No real-model imports until all read-only checks succeeded.
+            report["inference_attempted"] = True
             metrics = execute_pipeline(args.audio.expanduser().resolve(), args)
             report["actual_inference_performed"] = True
             report["metrics"] = metrics
