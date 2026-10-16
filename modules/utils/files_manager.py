@@ -12,6 +12,8 @@ except ImportError:  # Gradio < 3.50
             return obj
 
 from modules.utils.paths import DEFAULT_PARAMETERS_CONFIG_PATH
+from modules.utils.local_security import redact_config_secrets
+from pathlib import Path
 
 AUDIO_EXTENSION = ['.mp3', '.wav', '.wma', '.aac', '.flac', '.ogg', '.m4a', '.aiff', '.alac', '.opus', '.webm', '.ac3',
                    '.amr', '.au', '.mid', '.midi', '.mka']
@@ -28,7 +30,10 @@ def load_yaml(path: str = DEFAULT_PARAMETERS_CONFIG_PATH, use_fallback: bool = T
     yaml.preserve_quotes = True
     try:
         with open(path, 'r', encoding='utf-8') as file:
-            return yaml.load(file)
+            loaded = yaml.load(file)
+            if Path(path).resolve() == Path(DEFAULT_PARAMETERS_CONFIG_PATH).resolve():
+                return redact_config_secrets(loaded)
+            return loaded
     except UnicodeDecodeError:
         if not use_fallback:
             raise
@@ -46,6 +51,8 @@ def load_yaml(path: str = DEFAULT_PARAMETERS_CONFIG_PATH, use_fallback: bool = T
                 content = raw_bytes.decode(encoding)
                 config = yaml.load(content)
                 print(f"Successfully loaded {path} with '{encoding}'. Consider converting the file to UTF-8.")
+                if Path(path).resolve() == Path(DEFAULT_PARAMETERS_CONFIG_PATH).resolve():
+                    return redact_config_secrets(config)
                 return config
             except Exception as inner_e:  # Catches both UnicodeDecodeError and YAMLError
                 print(f"   -> Loading with '{encoding}' failed: {inner_e}")
@@ -64,7 +71,7 @@ def save_yaml(data: dict, path: str = DEFAULT_PARAMETERS_CONFIG_PATH):
     yaml.sort_base_mapping_type_on_output = False
 
     with open(path, 'w', encoding='utf-8') as file:
-        yaml.dump(data, file)
+        yaml.dump(redact_config_secrets(data), file)
     return path
 
 
