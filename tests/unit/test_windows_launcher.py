@@ -171,3 +171,55 @@ def test_launcher_does_not_install_or_start_fastapi():
     assert "pip install" not in source
     assert "uvicorn" not in source.lower()
     assert "webbrowser.open_new_tab" in source
+
+
+def test_preflight_timeout_is_actionable(monkeypatch, tmp_path):
+    fake_install(tmp_path)
+    def timeout(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd="preflight", timeout=45)
+    monkeypatch.setattr(launcher.subprocess, "run", timeout)
+    with pytest.raises(launcher.LaunchError, match="TimeoutExpired"):
+        launcher.check_venv(tmp_path)
+
+
+def test_early_process_exit_does_not_open_browser(monkeypatch, tmp_path):
+    fake_install(tmp_path)
+    monkeypatch.setattr(launcher, "check_venv", lambda root: [])
+    monkeypatch.setattr(launcher, "port_is_occupied", lambda port: False)
+    class EarlyExit(FakeProcess):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            self.returncode = 17
+    monkeypatch.setattr(launcher.subprocess, "Popen", EarlyExit)
+    monkeypatch.setattr(launcher.webbrowser, "open_new_tab", lambda u: (_ for _ in ()).throw(AssertionError("opened")))
+    assert launcher.run(args(), root=tmp_path) == 2
+    logs = list((tmp_path / "logs").glob("start-*.log"))
+    assert "exited during startup (code 17)" in logs[0].read_text()
+
+
+def test_stopping_server_on_timeout(monkeypatch, tmp_path):
+    fake_install(tmp_path)
+    monkeypatch.setattr(launcher, "check_venv", lambda root: [])
+    monkeypatch.setattr(launcher, "port_is_occupied", lambda port: False)
+    process = FakeProcess()
+    monkeypatch.setattr(launcher.subprocess, "Popen", lambda *a, **kw: process)
+    monkeypatch.setattr(launcher, "http_is_ready", lambda port: False)
+    tick = iter([0, 60])
+    monkeypatch.setattr(launcher.time, "monotonic", lambda: next(tick))
+    assert launcher.run(args("--startup-timeout", "15"), root=tmp_path) == 2
+    assert process.returncode is not None
+    logs = list((tmp_path / "logs").glob("start-*.log"))
+    assert "did not respond" in logs[0].read_text()
+
+
+def test_root_start_bat_validates_env_and_delegates():
+    root = SOURCE.parents[1]
+    bat = root / "Start.bat"
+    if not bat.exists():
+        pytest.skip("Only launcher module and tests copied for isolated test run")
+    script = bat.read_text(encoding="utf-8")
+    assert "venv\\Scripts\\python.exe" in script
+    assert "launch_windows.py" in script
+    assert "-I" in script
+    assert "pause" in script
+    assert "Install.bat" in script
