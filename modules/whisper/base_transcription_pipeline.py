@@ -133,6 +133,7 @@ class BaseTranscriptionPipeline(ABC):
             add_timestamp: bool = True,
             progress_callback: Optional[Callable] = None,
             *pipeline_params,
+            persist_settings: bool = True,
             ) -> Tuple[List[Segment], float]:
         """
         Run transcription with conditional pre-processing and post-processing.
@@ -153,6 +154,9 @@ class BaseTranscriptionPipeline(ABC):
         progress_callback: Optional[Callable]
             callback function to show progress. Can be used to update progress in the backend.
 
+        persist_settings: bool
+            Preserve legacy Advanced UI caching by default. MVP jobs pass False
+            so tracked default_parameters.yaml is never modified by inference.
         *pipeline_params: tuple
             Parameters for the transcription pipeline. This will be dealt with "TranscriptionPipelineParams" data class.
             This must be provided as a List with * wildcard because of the integration with gradio.
@@ -309,11 +313,12 @@ class BaseTranscriptionPipeline(ABC):
 
             self._check_cancelled()
 
-        self.cache_parameters(
-            params=params,
-            file_format=file_format,
-            add_timestamp=add_timestamp
-        )
+        if persist_settings:
+            self.cache_parameters(
+                params=params,
+                file_format=file_format,
+                add_timestamp=add_timestamp
+            )
 
         if not result:
             logger.info(f"Whisper did not detected any speech segments in the audio.")
@@ -850,8 +855,12 @@ class BaseTranscriptionPipeline(ABC):
             pass
         elif params.whisper.lang == AUTOMATIC_DETECTION:
             params.whisper.lang = None
+        elif params.whisper.lang in whisper.tokenizer.LANGUAGES:
+            pass  # Already a canonical language code, e.g. "ru" from MVP jobs.
         else:
             language_code_dict = {value: key for key, value in whisper.tokenizer.LANGUAGES.items()}
+            if params.whisper.lang not in language_code_dict:
+                raise ValueError(f"Unsupported Whisper language: {params.whisper.lang!r}")
             params.whisper.lang = language_code_dict[params.whisper.lang]
 
         if params.whisper.initial_prompt == GRADIO_NONE_STR:
