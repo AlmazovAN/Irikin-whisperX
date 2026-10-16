@@ -75,7 +75,7 @@ def is_local_origin(origin: str | None) -> bool:
 def validate_launch_settings(*, server_name: str | None, share: bool,
                              api_open: bool) -> str:
     """Fail closed instead of silently permitting an externally reachable UI."""
-    host = server_name or "127.0.0.1"
+    host = "127.0.0.1" if server_name is None else server_name
     if host not in ("localhost", "127.0.0.1", "::1"):
         raise ValueError("Only 127.0.0.1, localhost and ::1 are permitted for local mode.")
     if share:
