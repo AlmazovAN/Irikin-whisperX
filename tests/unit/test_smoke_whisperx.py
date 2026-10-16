@@ -396,3 +396,27 @@ def test_execute_pipeline_requires_cuda_when_explicitly_requested(monkeypatch, t
     args = smoke.parse_args(["--audio", str(tmp_path / "x.wav"), "--device", "cuda"])
     with pytest.raises(smoke.SmokeBlocked, match="CUDA"):
         smoke.execute_pipeline(tmp_path / "x.wav", args)
+
+
+
+def test_two_voice_smoke_requires_two_distinct_speaker_ids():
+    a = Segment("Добрый день", "SPEAKER_00", [Word(0.1, 0.4, "SPEAKER_00")])
+    b = Segment("Здравствуйте", "SPEAKER_01", [Word(2.1, 2.7, "SPEAKER_01")])
+    evidence = smoke.evaluate_segments([a, b], require_diarization=True, min_speakers=2)
+    assert evidence["speaker_count"] == 2
+    assert evidence["diarization_verified"] is True
+
+
+def test_two_voice_smoke_rejects_one_speaker_without_false_success():
+    a = Segment("Добрый день", "SPEAKER_00", [Word(0.1, 0.4, "SPEAKER_00")])
+    b = Segment("Здравствуйте", "SPEAKER_00", [Word(2.1, 2.7, "SPEAKER_00")])
+    with pytest.raises(smoke.SmokeFailed, match="at least 2 required"):
+        smoke.evaluate_segments([a, b], require_diarization=True, min_speakers=2)
+
+
+def test_smoke_min_speakers_requires_diarization_and_valid_range():
+    assert smoke.parse_args(["--diagnose-only", "--min-speakers", "2"]).min_speakers == 2
+    with pytest.raises(SystemExit):
+        smoke.parse_args(["--diagnose-only", "--min-speakers", "0"])
+    with pytest.raises(SystemExit):
+        smoke.parse_args(["--diagnose-only", "--without-diarization", "--min-speakers", "2"])

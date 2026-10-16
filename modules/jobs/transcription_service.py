@@ -8,6 +8,7 @@ P15 will own a single instance of this service inside the durable worker.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 import logging
 import math
 from pathlib import Path
@@ -15,6 +16,7 @@ from threading import Lock
 from typing import TYPE_CHECKING, Callable
 
 from modules.jobs.inputs import ValidatedInput
+from modules.diarize.diagnostics import ModelStageError, require_hf_token
 from modules.mvp.preset import MVP_PRESET, build_mvp_pipeline_params
 
 if TYPE_CHECKING:
@@ -149,6 +151,11 @@ class TranscriptionService:
         )
         if progress_callback is not None and not callable(progress_callback):
             raise TypeError("progress_callback must be callable")
+        if diarization_enabled:
+            try:
+                require_hf_token(os.environ.get("HF_TOKEN"))
+            except ModelStageError as exc:
+                raise TranscriptionServiceError(exc.code, str(exc)) from None
         if not self._lock.acquire(blocking=False):
             raise TranscriptionServiceError("BUSY", "Another transcription is already running")
         pipeline = None
@@ -163,6 +170,9 @@ class TranscriptionService:
                     False, progress_callback, *params.to_list(),
                     persist_settings=False, strict_vad=True,
                 )
+            except ModelStageError as exc:
+                # No HF tokens, third-party exception repr or system paths.
+                raise TranscriptionServiceError(exc.code, str(exc)) from None
             except Exception:
                 raise TranscriptionServiceError(
                     "PIPELINE_FAILED", "WhisperX inference failed; inspect local diagnostics"

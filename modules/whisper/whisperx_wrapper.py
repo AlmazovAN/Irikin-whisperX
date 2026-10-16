@@ -1,4 +1,5 @@
 import gc
+import hashlib
 import inspect
 import os
 import time
@@ -10,6 +11,7 @@ import numpy as np
 import torch
 
 from modules.diarize.diarize_pipeline import DiarizationPipeline, assign_word_speakers
+from modules.diarize.diagnostics import ModelStageError, require_device, require_hf_token
 from modules.diarize.audio_loader import SAMPLE_RATE, load_audio
 from modules.utils.logger import get_logger
 from modules.whisper.data_classes import DiarizationParams, Segment, WhisperParams, Word
@@ -44,7 +46,7 @@ class WhisperXWrapper:
 
         self._diarization_pipeline: Optional[DiarizationPipeline] = None
         self._diarization_device: Optional[str] = None
-        self._diarization_token: Optional[str] = None
+        self._diarization_token_fingerprint: Optional[bytes] = None
         self._diarization_compute_type: Optional[str] = None
 
     @staticmethod
@@ -288,32 +290,53 @@ class WhisperXWrapper:
         resolved_device = self._resolve_device(device)
         language_code = (language or "en").lower()
 
+        require_device(resolved_device, torch.cuda.is_available())
         if self._align_model is None or self._align_language != language_code:
             logger.info("Loading WhisperX alignment model for language %s", language_code)
-            align_signature = inspect.signature(whisperx.load_align_model).parameters
-            align_kwargs = {
-                "language_code": language_code,
-                "device": resolved_device,
-            }
-
-            if "model_dir" in align_signature:
-                align_kwargs["model_dir"] = self.model_dir
-            elif "download_root" in align_signature:
-                align_kwargs["download_root"] = self.model_dir
-
-            self._align_model, self._align_metadata = whisperx.load_align_model(**align_kwargs)
+            try:
+                align_signature = inspect.signature(whisperx.load_align_model).parameters
+                align_kwargs = {
+                    "language_code": language_code,
+                    "device": resolved_device,
+                }
+                if "model_dir" in align_signature:
+                    align_kwargs["model_dir"] = self.model_dir
+                elif "download_root" in align_signature:
+                    align_kwargs["download_root"] = self.model_dir
+                self._align_model, self._align_metadata = whisperx.load_align_model(**align_kwargs)
+            except Exception:
+                self._align_model = self._align_metadata = None
+                raise ModelStageError(
+                    "ALIGNMENT_MODEL_UNAVAILABLE",
+                    "WhisperX could not load the Russian alignment model. "
+                    "Check model downloads, compatible dependencies and device memory.",
+                ) from None
+            if self._align_model is None:
+                raise ModelStageError(
+                    "ALIGNMENT_MODEL_UNAVAILABLE",
+                    "WhisperX returned no alignment model for the selected language.",
+                )
             self._align_language = language_code
 
-        audio_array = load_audio(audio)
-        aligned_result = whisperx.align(
-            self._segments_to_dict(segments),
-            self._align_model,
-            self._align_metadata,
-            audio_array,
-            resolved_device,
-            return_char_alignments=False,
-        )
-        return self._segments_from_dict(aligned_result.get("segments", []))
+        try:
+            audio_array = load_audio(audio)
+            aligned_result = whisperx.align(
+                self._segments_to_dict(segments),
+                self._align_model,
+                self._align_metadata,
+                audio_array,
+                resolved_device,
+                return_char_alignments=False,
+            )
+            if not isinstance(aligned_result, dict) or not isinstance(aligned_result.get("segments"), list):
+                raise ValueError("Invalid alignment payload")
+            return self._segments_from_dict(aligned_result["segments"])
+        except Exception:
+            raise ModelStageError(
+                "ALIGNMENT_FAILED",
+                "WhisperX forced alignment failed. Check language, recording quality "
+                "and available CPU/GPU memory.",
+            ) from None
 
     def diarize(
         self,
@@ -326,7 +349,10 @@ class WhisperXWrapper:
             return list(segments)
 
         resolved_device = self._resolve_device(diarization_params.diarization_device)
-        token = diarization_params.hf_token or os.environ.get("HF_TOKEN")
+        require_device(resolved_device, torch.cuda.is_available())
+        token = require_hf_token(diarization_params.hf_token or os.environ.get("HF_TOKEN"))
+        # Store only an in-memory digest for reuse decisions, never the HF secret.
+        token_fingerprint = hashlib.sha256(token.encode("utf-8")).digest()
         available_compute_types = self._available_diarization_compute_types(resolved_device)
         requested_compute_type = getattr(diarization_params, "compute_type", None)
         if requested_compute_type not in available_compute_types:
@@ -335,9 +361,11 @@ class WhisperXWrapper:
         if (
             self._diarization_pipeline is None
             or self._diarization_device != resolved_device
-            or self._diarization_token != token
+            or self._diarization_token_fingerprint != token_fingerprint
             or self._diarization_compute_type != requested_compute_type
         ):
+            # The gated Pyannote model and adapter raise ModelStageError with
+            # actionable sanitized diagnostics for token/device/load failures.
             self._diarization_pipeline = DiarizationPipeline(
                 cache_dir=self.diarization_model_dir,
                 device=resolved_device,
@@ -345,15 +373,28 @@ class WhisperXWrapper:
                 compute_type=requested_compute_type,
             )
             self._diarization_device = resolved_device
-            self._diarization_token = token
+            self._diarization_token_fingerprint = token_fingerprint
             self._diarization_compute_type = requested_compute_type
 
-        diarize_df = self._diarization_pipeline(audio)
-        diarized = assign_word_speakers(
-            diarize_df,
-            {"segments": self._segments_to_dict(segments)},
-        )
-        return self._segments_from_dict(diarized.get("segments", []), prefix_speaker=True)
+        try:
+            diarize_df = self._diarization_pipeline(audio)
+            diarized = assign_word_speakers(
+                diarize_df,
+                {"segments": self._segments_to_dict(segments)},
+                fill_nearest=diarization_params.fill_nearest_speaker,
+                tag_words=diarization_params.assign_word_speakers,
+            )
+            if not isinstance(diarized, dict) or not isinstance(diarized.get("segments"), list):
+                raise ValueError("Invalid diarization payload")
+            return self._segments_from_dict(diarized["segments"], prefix_speaker=True)
+        except ModelStageError:
+            raise
+        except Exception:
+            raise ModelStageError(
+                "DIARIZATION_FAILED",
+                "Pyannote diarization failed. Check audio quality, package versions "
+                "and available memory, then retry.",
+            ) from None
 
     def offload_asr(self) -> None:
         if self._model is not None:
@@ -380,7 +421,7 @@ class WhisperXWrapper:
             del self._diarization_pipeline
             self._diarization_pipeline = None
             self._diarization_device = None
-            self._diarization_token = None
+            self._diarization_token_fingerprint = None
             self._diarization_compute_type = None
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
