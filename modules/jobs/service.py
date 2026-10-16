@@ -39,6 +39,8 @@ class JobTicket:
     language: str
     audio_duration: float
     created_at: str
+    attempt: int = 0
+    error_code: str | None = None
 
 
 class JobService:
@@ -138,7 +140,7 @@ class JobService:
         with closing(self._connect()) as conn:
             row = conn.execute("""
                 SELECT uuid, status, stage, file_name, model_name,
-                       language, audio_duration, created_at
+                       language, audio_duration, created_at, attempt, error_code
                 FROM tasks WHERE uuid=?
             """, (identifier,)).fetchone()
         if row is None:
@@ -147,7 +149,8 @@ class JobService:
             identifier=row["uuid"], status=row["status"], stage=row["stage"],
             file_name=row["file_name"], model_name=row["model_name"],
             language=row["language"], audio_duration=row["audio_duration"],
-            created_at=row["created_at"],
+            created_at=row["created_at"], attempt=int(row["attempt"]),
+            error_code=row["error_code"],
         )
 
     def saved_input(self, identifier: str) -> Path:
@@ -162,3 +165,67 @@ class JobService:
         if row is None or row["input_path"] is None:
             raise JobIntakeError("STORED_INPUT_MISSING", "Job audio is unavailable")
         return self.storage.resolve_input(row["input_path"])
+
+
+    def list_jobs(self, *, limit: int = 50) -> tuple[JobTicket, ...]:
+        """Return recent jobs without exposing private input/output paths."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 500:
+            raise ValueError("limit must be between 1 and 500")
+        with closing(self._connect()) as conn:
+            rows = conn.execute("""
+                SELECT uuid, status, stage, file_name, model_name, language,
+                       audio_duration, created_at, attempt, error_code
+                FROM tasks WHERE task_type='TRANSCRIPTION'
+                ORDER BY id DESC LIMIT ?
+            """, (limit,)).fetchall()
+        return tuple(
+            JobTicket(
+                identifier=row["uuid"], status=row["status"], stage=row["stage"],
+                file_name=row["file_name"], model_name=row["model_name"],
+                language=row["language"], audio_duration=row["audio_duration"],
+                created_at=row["created_at"], attempt=int(row["attempt"]),
+                error_code=row["error_code"],
+            ) for row in rows
+        )
+
+    def cancel(self, identifier: str) -> bool:
+        """P15: cancel only an unclaimed queued job; never kill active inference.
+
+        P19 adds cooperative cancellation of an already running transcription.
+        """
+        if self.get(identifier) is None:
+            return False
+        at = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(sep=" ")
+        with closing(self._connect()) as conn:
+            with conn:
+                cursor = conn.execute("""
+                    UPDATE tasks SET status='CANCELLED', stage='CANCELLED',
+                        finished_at=?, updated_at=?
+                    WHERE uuid=? AND status='QUEUED'
+                """, (at, at, identifier))
+                return cursor.rowcount == 1
+
+    def retry(self, identifier: str) -> bool:
+        """P15: requeue an existing FAILED attempt without reupload.
+
+        A running/completed/cancelled job is not retried in this version.
+        P19 adds detailed cleanup and cancellation/retry policy.
+        """
+        ticket = self.get(identifier)
+        if ticket is None or ticket.status != "FAILED":
+            return False
+        # Explicitly check durable input before changing the queue state.
+        try:
+            self.saved_input(identifier)
+        except (JobIntakeError, JobStorageError):
+            return False
+        at = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(sep=" ")
+        with closing(self._connect()) as conn:
+            with conn:
+                cursor = conn.execute("""
+                    UPDATE tasks SET status='QUEUED', stage='QUEUED',
+                        error=NULL, error_code=NULL, finished_at=NULL,
+                        progress=0.0, updated_at=?
+                    WHERE uuid=? AND status='FAILED'
+                """, (at, identifier))
+                return cursor.rowcount == 1
