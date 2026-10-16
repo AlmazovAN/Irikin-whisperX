@@ -12,7 +12,7 @@
 | P02 | [OPEN, PR #2](https://github.com/AlmazovAN/Irikin-whisperX/pull/2); ожидает Windows-прогона | `feature/p02-hardware-preflight` | CLI-диагностика Windows/Python/FFmpeg/GPU/VRAM/PyTorch/HF и автономные тесты |
 | P03 | [DRAFT, PR #3](https://github.com/AlmazovAN/Irikin-whisperX/pull/3); ожидает Windows-тестов | `feature/p03-windows-install` | CPU/NVIDIA wheel-профили, кандидатные pin-версии, защитный установщик, unit-тесты |
 | P04 | [DRAFT, PR #4](https://github.com/AlmazovAN/Irikin-whisperX/pull/4); ожидает тестирования | `fix/p04-local-security` | Loopback Gradio/FastAPI, безопасные пути, очистка секретов YAML/Task, .env |
-| P05 | Разработан, ожидает Windows-испытаний | `feature/p05-windows-launcher` | Start.bat, одиночный сервер Gradio, preflight, HTTP readiness, локальные логи, тесты |
+| P05 | [DRAFT, PR #5](https://github.com/AlmazovAN/Irikin-whisperX/pull/5); Windows-приёмка отложена | `feature/p05-windows-launcher` | Start.bat, одиночный сервер Gradio, preflight, HTTP readiness, локальные логи, тесты |
 | P06 | PLANNED | — | Реальный smoke-test и ADR |
 
 ### Не проверено на P01
