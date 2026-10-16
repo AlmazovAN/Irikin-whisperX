@@ -322,8 +322,9 @@ def test_execute_pipeline_reuses_single_existing_engine_with_exact_preset(monkey
             self.offloaded = False
             made.append(self)
 
-        def run(self, audio, progress, output, add_timestamp, callback, *values, persist_settings=True):
+        def run(self, audio, progress, output, add_timestamp, callback, *values, persist_settings=True, strict_vad=False):
             assert persist_settings is False
+            assert strict_vad is True
             assert output == "txt"
             assert add_timestamp is False
             assert callback is None
