@@ -1,13 +1,4 @@
-# Whisper-WebUI dependencies
+# The shared Whisper-WebUI stack is declared in requirements.txt.
+# Keep this file limited to API-only dependencies to avoid duplicate package entries.
 -r ../requirements.txt
-
-# Backend dependencies
-python-dotenv
-uvicorn
-SQLAlchemy
-sqlmodel
-pydantic
-
-# Test dependencies
-# pytest
-# pytest-asyncio
+uvicorn==0.35.0
