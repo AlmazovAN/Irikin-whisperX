@@ -179,7 +179,7 @@ def execute_pipeline(audio: Path, args: argparse.Namespace) -> dict:
     try:
         segments, elapsed = pipeline.run(
             str(audio), gr.Progress(), MVP_PRESET.output_format, False, None,
-            *params.to_list(), persist_settings=False
+            *params.to_list(), persist_settings=False, strict_vad=True
         )
         validated = evaluate_segments(segments, require_diarization=require_diarization)
         validated["elapsed_pipeline_seconds"] = round(float(elapsed), 2)

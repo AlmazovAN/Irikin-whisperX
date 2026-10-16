@@ -6,7 +6,7 @@ from typing import BinaryIO, Union, List, Optional, Tuple
 import warnings
 import bisect
 import faster_whisper
-from faster_whisper.transcribe import SpeechTimestampsMap
+from modules.vad.timestamps import restore_original_timestamps
 import gradio as gr
 
 from modules.whisper.data_classes import *
@@ -260,28 +260,8 @@ class SileroVAD:
         speech_chunks: List[dict],
         sampling_rate: Optional[int] = None,
     ) -> List[Segment]:
-        if sampling_rate is None:
-            sampling_rate = self.sampling_rate
-
-        ts_map = SpeechTimestampsMap(speech_chunks, sampling_rate)
-
-        for segment in segments:
-            if segment.words:
-                words = []
-                for word in segment.words:
-                    # Ensure the word start and end times are resolved to the same chunk.
-                    middle = (word.start + word.end) / 2
-                    chunk_index = ts_map.get_chunk_index(middle)
-                    word.start = ts_map.get_original_time(word.start, chunk_index)
-                    word.end = ts_map.get_original_time(word.end, chunk_index)
-                    words.append(word)
-
-                segment.start = words[0].start
-                segment.end = words[-1].end
-                segment.words = words
-
-            else:
-                segment.start = ts_map.get_original_time(segment.start)
-                segment.end = ts_map.get_original_time(segment.end)
-
-        return segments
+        """Convert ASR timestamps from trimmed VAD time to source-audio time."""
+        return restore_original_timestamps(
+            segments, speech_chunks,
+            sample_rate=self.sampling_rate if sampling_rate is None else sampling_rate,
+        )

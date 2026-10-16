@@ -83,8 +83,9 @@ class FakePipeline:
         self.whisperx_wrapper = None
 
     def run(self, path, progress, file_format, add_timestamp,
-            callback, *config, persist_settings=True):
+            callback, *config, persist_settings=True, strict_vad=False):
         self.calls.append((path, progress, file_format, add_timestamp, callback, config, persist_settings))
+        assert strict_vad is True
         progress(0, desc="Filtering silent parts from audio")
         progress(0.95, desc="Aligning")
         if self.block is not None:

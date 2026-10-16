@@ -160,7 +160,8 @@ class TranscriptionService:
                 pipeline.device = device
                 raw, elapsed = pipeline.run(
                     str(source_path), HeadlessProgress(), MVP_PRESET.output_format,
-                    False, progress_callback, *params.to_list(), persist_settings=False,
+                    False, progress_callback, *params.to_list(),
+                    persist_settings=False, strict_vad=True,
                 )
             except Exception:
                 raise TranscriptionServiceError(

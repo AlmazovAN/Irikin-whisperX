@@ -134,6 +134,7 @@ class BaseTranscriptionPipeline(ABC):
             progress_callback: Optional[Callable] = None,
             *pipeline_params,
             persist_settings: bool = True,
+            strict_vad: bool = False,
             ) -> Tuple[List[Segment], float]:
         """
         Run transcription with conditional pre-processing and post-processing.
@@ -157,6 +158,8 @@ class BaseTranscriptionPipeline(ABC):
         persist_settings: bool
             Preserve legacy Advanced UI caching by default. MVP jobs pass False
             so tracked default_parameters.yaml is never modified by inference.
+        strict_vad: bool
+            Fail closed on VAD silence for MVP; legacy UI retains its fallback.
         *pipeline_params: tuple
             Parameters for the transcription pipeline. This will be dealt with "TranscriptionPipelineParams" data class.
             This must be provided as a List with * wildcard because of the integration with gradio.
@@ -230,8 +233,14 @@ class BaseTranscriptionPipeline(ABC):
                 progress=progress
             )
 
-            if vad_processed.size > 0:
+            if vad_processed.size > 0 and speech_chunks:
                 audio = vad_processed
+            elif strict_vad:
+                if vad_processed.size > 0:
+                    raise RuntimeError("VAD returned nonempty audio without speech chunks")
+                logger.info("VAD detected no speech; skipping ASR instead of transcribing silence")
+                progress(1.0, desc="No speech detected.")
+                return [Segment()], time.time() - start_time
             else:
                 vad_params.vad_filter = False
 
@@ -274,7 +283,7 @@ class BaseTranscriptionPipeline(ABC):
             progress(0.95, desc="Aligning with WhisperX..")
             result = self.whisperx_wrapper.align(
                 segments=result,
-                language=whisperx_language,
+                language=whisper_params.lang or whisperx_language,
                 audio=origin_audio,
                 device=self.device,
             )
