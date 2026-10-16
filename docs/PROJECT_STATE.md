@@ -12,7 +12,7 @@
 | P02 | [OPEN, PR #2](https://github.com/AlmazovAN/Irikin-whisperX/pull/2); ожидает Windows-прогона | `feature/p02-hardware-preflight` | CLI-диагностика Windows/Python/FFmpeg/GPU/VRAM/PyTorch/HF и автономные тесты |
 | P03 | [DRAFT, PR #3](https://github.com/AlmazovAN/Irikin-whisperX/pull/3); ожидает Windows-тестов | `feature/p03-windows-install` | CPU/NVIDIA wheel-профили, кандидатные pin-версии, защитный установщик, unit-тесты |
 | P04 | [DRAFT, PR #4](https://github.com/AlmazovAN/Irikin-whisperX/pull/4); ожидает тестирования | `fix/p04-local-security` | Loopback Gradio/FastAPI, безопасные пути, очистка секретов YAML/Task, .env |
-| P05 | PLANNED | — | Windows launcher |
+| P05 | Разработан, ожидает Windows-испытаний | `feature/p05-windows-launcher` | Start.bat, одиночный сервер Gradio, preflight, HTTP readiness, локальные логи, тесты |
 | P06 | PLANNED | — | Реальный smoke-test и ADR |
 
 ### Не проверено на P01
@@ -52,3 +52,14 @@
 - При сохранении YAML и Task секреты удаляются; существующая БД **не изменялась**.
 - Файл `backend/records.db` уже отслеживается Git и **не удалён**: `.gitignore` не отменяет ранее добавленный файл; миграцию выполнять отдельно после аудита данных.
 - Автоматическая проверка на Windows/Gradio/FastAPI и реальная инференция ещё не подтверждены.
+
+### P05 — Windows Launcher (разработка)
+
+- Базовая ветка P05: `fix/p04-local-security`, пока PR #1–#4 не слиты.
+- `Start.bat` является рекомендуемой точкой входа. `start-webui.bat` вызывает тот же launcher.
+- Проверяет `venv`, P02 диагностику (`--skip-torch`), FFmpeg, базовые пакеты, занятый порт и локальный HTTP.
+- В отдельном процессе под тем же окном консоли работает **только один** `app.py`; отдельный FastAPI не поднимается.
+- Вывод/ошибки записываются в `logs/`; launcher не устанавливает или не удаляет зависимости.
+- Локальная изолированная проверка `tests/unit/test_windows_launcher.py`: **26 passed**; Python 3.13 Linux, с mocked subprocess/HTTP, без настоящего WebUI. **Это не проверка Windows CMD/CTRL_BREAK**.
+- Файл `.github/workflows/ci.yml` теперь допускает CI на stacked PR (любая целевая ветка). Фактический статус GitHub Actions проверять отдельно.
+- Полное функциональное тестирование на Windows и реальный аудио smoke-test остаются до P06 / приёмки этапа.
