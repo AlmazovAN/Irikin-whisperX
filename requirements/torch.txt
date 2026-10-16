@@ -1,0 +1,7 @@
+# Install these FIRST using the appropriate official PyTorch index URL:
+# CPU: https://download.pytorch.org/whl/cpu
+# NVIDIA CUDA 12.6: https://download.pytorch.org/whl/cu126
+# The complete installation is handled by Install.bat / scripts/install_windows.py.
+torch==2.7.1
+torchaudio==2.7.1
+torchvision==0.22.1
