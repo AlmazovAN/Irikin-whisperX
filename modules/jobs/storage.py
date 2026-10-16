@@ -102,8 +102,13 @@ class JobStorage:
         candidate = Path(root).expanduser()
         if candidate.is_symlink():
             raise JobStorageError("UNSAFE_STORAGE_ROOT", "Job storage cannot be a symlink")
-        candidate.mkdir(parents=True, exist_ok=True, mode=0o700)
-        self.root = candidate.resolve(strict=True)
+        try:
+            candidate.mkdir(parents=True, exist_ok=True, mode=0o700)
+            self.root = candidate.resolve(strict=True)
+        except (OSError, RuntimeError):
+            raise JobStorageError(
+                "UNSAFE_STORAGE_ROOT", "Unable to initialize local job storage"
+            ) from None
         if not self.root.is_dir():
             raise JobStorageError("UNSAFE_STORAGE_ROOT", "Invalid job storage directory")
 
@@ -132,6 +137,8 @@ class JobStorage:
             job_dir.mkdir(mode=0o700, exist_ok=False)
         except FileExistsError:
             raise JobStorageError("JOB_EXISTS", "Job identifier already exists") from None
+        except OSError:
+            raise JobStorageError("STORAGE_FAILED", "Unable to create job folder") from None
         input_dir = job_dir / "input"
         part = input_dir / f".{file_name}.part"
         final = input_dir / file_name
@@ -139,6 +146,13 @@ class JobStorage:
             input_dir.mkdir(mode=0o700)
             digest = _copy_verified(source, part, limits.max_file_bytes)
             os.replace(part, final)
+            if os.name == "posix":
+                # Durable directory entry on common POSIX filesystems.
+                folder_fd = os.open(input_dir, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+                try:
+                    os.fsync(folder_fd)
+                finally:
+                    os.close(folder_fd)
             # Recheck the bytes actually owned by the job, not the Gradio cache.
             checked = validate_input(
                 InputSource.local_file(final), local_roots=(input_dir,),
@@ -155,6 +169,11 @@ class JobStorage:
             )
             # P13 Task.input_path is private: store only a root-relative locator.
             return StoredAudio(job_id, f"{job_id}/input/{file_name}", stored, digest)
+        except OSError:
+            shutil.rmtree(job_dir, ignore_errors=True)
+            raise JobStorageError(
+                "STORAGE_FAILED", "Unable to persist audio in job storage"
+            ) from None
         except Exception:
             shutil.rmtree(job_dir, ignore_errors=True)
             raise

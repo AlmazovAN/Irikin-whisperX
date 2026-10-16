@@ -4,6 +4,7 @@ No inference, worker, browser callback or separate FastAPI process is started.
 """
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
@@ -81,20 +82,21 @@ class JobService:
             "alignment": MVP_PRESET.alignment_enabled,
             "diarization": MVP_PRESET.diarization_enabled,
         }, ensure_ascii=False)
-        with self._connect() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            conn.execute("""
+        with closing(self._connect()) as conn:
+            with conn:
+                conn.execute("BEGIN IMMEDIATE")
+                conn.execute("""
                 INSERT INTO tasks
                 (uuid, status, stage, task_type, result_type, file_name,
                  input_path, audio_duration, language, task_params, model_name,
                  attempt, progress, created_at, updated_at)
                 VALUES (?, 'QUEUED', 'QUEUED', 'TRANSCRIPTION', 'JSON', ?,
                         ?, ?, ?, ?, ?, 0, 0.0, ?, ?)
-            """, (
-                job.job_id, job.source.safe_filename, job.relative_path,
-                job.source.duration_seconds, MVP_PRESET.language, params,
-                MVP_PRESET.model_size, created_at, created_at,
-            ))
+                """, (
+                    job.job_id, job.source.safe_filename, job.relative_path,
+                    job.source.duration_seconds, MVP_PRESET.language, params,
+                    MVP_PRESET.model_size, created_at, created_at,
+                ))
 
     def submit(self, source: InputSource) -> JobTicket:
         """Verify source, persist bytes, persist QUEUED, then return ticket.
@@ -133,7 +135,7 @@ class JobService:
                 return None
         except (ValueError, TypeError, AttributeError):
             return None
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             row = conn.execute("""
                 SELECT uuid, status, stage, file_name, model_name,
                        language, audio_duration, created_at
@@ -153,7 +155,7 @@ class JobService:
         ticket = self.get(identifier)
         if ticket is None:
             raise JobIntakeError("JOB_NOT_FOUND", "Job does not exist")
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             row = conn.execute(
                 "SELECT input_path FROM tasks WHERE uuid=?", (identifier,)
             ).fetchone()

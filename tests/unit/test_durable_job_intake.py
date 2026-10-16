@@ -12,7 +12,7 @@ from uuid import uuid4
 import pytest
 
 from modules.jobs.inputs import (
-    InputSource, InputValidationError, validate_input,
+    InputLimits, InputSource, InputValidationError, validate_input,
 )
 from modules.jobs.service import JobIntakeError, JobService
 from modules.jobs.storage import JobStorage, JobStorageError
@@ -144,9 +144,7 @@ def test_reject_changed_file_after_p08_validation(setup):
         pytest.skip("Symlinks unavailable")
     store = JobStorage(jobs)
     with pytest.raises(JobStorageError) as error:
-        store.save_validated(str(uuid4()), descriptor, limits=__import__(
-            "modules.jobs.inputs", fromlist=["InputLimits"]
-        ).InputLimits())
+        store.save_validated(str(uuid4()), descriptor, limits=InputLimits())
     assert error.value.code == "INPUT_CHANGED"
     assert list(jobs.glob("*/input/*")) == []
 
@@ -160,8 +158,9 @@ def test_copy_failure_leaves_no_part_or_queued_row(setup, monkeypatch):
     def fail_atomic_replace(*args):
         raise OSError("simulated storage failure")
     monkeypatch.setattr("modules.jobs.storage.os.replace", fail_atomic_replace)
-    with pytest.raises(OSError):
+    with pytest.raises(JobStorageError) as error:
         svc.submit(InputSource.upload(f))
+    assert error.value.code == "STORAGE_FAILED"
     assert db_rows(jobs) == []
     assert list(jobs.iterdir()) == [jobs / "jobs.sqlite3"]
 
@@ -239,3 +238,20 @@ def test_reject_symlink_storage_root(setup):
         pytest.skip("Symlinks unavailable")
     with pytest.raises(JobStorageError, match="symlink"):
         JobService(storage_root=jobs)
+
+
+def test_actual_sqlite_insert_failure_rolls_back_new_job(setup):
+    cache, _, jobs = setup
+    source = cache / "reject.wav"
+    wav(source)
+    svc = build_service(setup)
+    with sqlite3.connect(jobs / "jobs.sqlite3") as db:
+        db.execute("""
+            CREATE TRIGGER reject_queued BEFORE INSERT ON tasks
+            BEGIN SELECT RAISE(FAIL, 'simulated insert rejection'); END
+        """)
+    with pytest.raises(JobIntakeError) as error:
+        svc.submit(InputSource.upload(source))
+    assert error.value.code == "QUEUE_PERSIST_FAILED"
+    assert db_rows(jobs) == []
+    assert list(jobs.glob("*/input/*")) == []
