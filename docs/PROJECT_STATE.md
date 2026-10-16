@@ -188,7 +188,7 @@ Windows/PyTorch/WhisperX, как договорились, переноситс�
   worker добавляет PREPARING и EXPORT.
 - SQLite сохраняет монотонный progress + stage для конкретной попытки.
   JobService.get_status(uuid) и list_jobs() дают свежие безопасные snapshot.
-- \`progress\` — условные точки, не процент работы по времени и не ETA.
+- `progress` — условные точки, не процент работы по времени и не ETA.
 - Миграции и существующий WhisperX pipeline не изменены.
 - Обновления UI/REST и реальный Windows smoke: НЕ выполнены.
 - Детали: docs/pr17-stage-progress.md, tests/unit/test_persisted_stage_progress.py.
@@ -210,3 +210,20 @@ Windows/PyTorch/WhisperX, как договорились, переноситс�
 - GitHub CI / MERGED смотреть по фактическому статусу PR, не по тексту ветки.
 - Windows/NTFS, real WhisperX/Pyannote, отключение питания — NOT_RUN.
 - Далее P18 дорожной карты / GitHub PR19: restart recovery.
+
+### P18 (GitHub PR #19): restart recovery
+
+- База: 356791b4e4f5e1cdc5e7e2158b34980d708eca3b.
+- Ветка: feature/pr19-restart-recovery.
+- JobWorker.start() под .worker.lock сверяет IN_PROGRESS с проверенными
+  result/attempt-N, восстанавливает COMPLETED либо ставит INTERRUPTED.
+- Нет автоматического повторного ASR: retry INTERRUPTED — только явно
+  и при существующем аудио, следующая попытка получает новый attempt.
+- SQLite транзакция целиком rollback при сбое; QUEUED продолжаются
+  строго FIFO, завершённые/отменённые/ошибочные задачи не переписываются.
+- RecoveryReport считает orphan каталоги и незавершённые наборы файлов;
+  не удаляет ничего автоматически и не раскрывает частных данных.
+- Подробности: docs/pr19-restart-recovery.md.
+- CI/MERGED подтверждать по GitHub, не по записи в этой ветке.
+- Windows/NTFS, real WhisperX/Pyannote, аварийное отключение питания: NOT_RUN.
+- Далее P19 плана / GitHub PR #20: cancellation/error regression и gate.

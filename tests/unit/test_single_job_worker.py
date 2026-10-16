@@ -272,21 +272,27 @@ def test_stop_does_not_abort_current_job_or_start_next(env):
     assert calls == ["current.wav", "later.wav"]
 
 
-def test_stale_in_progress_requires_recovery_no_false_completion(env):
+def test_stale_in_progress_is_interrupted_then_pending_continues(env):
     svc, _, add = env
     stale, waiting = add("stale"), add("pending")
     with closing(svc._connect()) as conn:
         with conn:
             conn.execute(
-                "UPDATE tasks SET status='IN_PROGRESS' WHERE uuid=?",
+                "UPDATE tasks SET status='IN_PROGRESS', attempt=1 WHERE uuid=?",
                 (stale.identifier,),
             )
-    worker = JobWorker(svc, transcriber_factory=lambda: _FakeASR(lambda _: None))
-    with pytest.raises(WorkerError) as e:
-        worker.start()
-    assert e.value.code == "RECOVERY_REQUIRED"
-    assert not worker.is_running
-    assert svc.get(waiting.identifier).status == "QUEUED"
+    worker = JobWorker(
+        svc, transcriber_factory=lambda: _FakeASR(lambda _: None),
+        poll_interval=0.01,
+    )
+    worker.start()
+    try:
+        _await_status(svc, waiting.identifier, "COMPLETED")
+    finally:
+        assert worker.stop(timeout=5)
+    assert svc.get(stale.identifier).status == "INTERRUPTED"
+    assert svc.get(stale.identifier).error_code == "RECOVERY_INTERRUPTED"
+    assert worker.last_recovery.interrupted == 1
 
 
 def test_missing_stored_input_fails_and_follower_completes(env):
