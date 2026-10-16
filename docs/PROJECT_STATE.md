@@ -179,3 +179,18 @@ Windows/PyTorch/WhisperX, как договорились, переноситс�
 - Проверять фактический MERGED / CI на GitHub: запись в ветке не доказательство.
 - Windows/CPU/Pyannote и browser E2E NOT_RUN.
 - Следующий PR: план P16 / GitHub PR #17 — стадии и статус polling.
+
+### P16 (GitHub PR #17) — progress и status polling
+
+- База: 48fba5a5940c9925a477e623ccbd319c16bf2b16.
+- Ветка: feature/pr17-persisted-stage-status.
+- HeadlessProgress распознаёт реальные VAD, ASR, ALIGN, DIARIZE события;
+  worker добавляет PREPARING и EXPORT.
+- SQLite сохраняет монотонный progress + stage для конкретной попытки.
+  JobService.get_status(uuid) и list_jobs() дают свежие безопасные snapshot.
+- \`progress\` — условные точки, не процент работы по времени и не ETA.
+- Миграции и существующий WhisperX pipeline не изменены.
+- Обновления UI/REST и реальный Windows smoke: НЕ выполнены.
+- Детали: docs/pr17-stage-progress.md, tests/unit/test_persisted_stage_progress.py.
+- GitHub CI и MERGED проверять фактически; запись в ветке не подтверждение merge.
+- Далее: P17 дорожной карты / GitHub PR #18 — атомарные результаты, retention.
