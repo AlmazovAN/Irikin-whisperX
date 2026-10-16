@@ -11,7 +11,7 @@
 | P01 | [OPEN, PR #1](https://github.com/AlmazovAN/Irikin-whisperX/pull/1); CI не подтверждён | `test/p01-fast-ci` | Быстрые автономные тесты, облегчённый CI, аудит существующих зависимостей |
 | P02 | [OPEN, PR #2](https://github.com/AlmazovAN/Irikin-whisperX/pull/2); ожидает Windows-прогона | `feature/p02-hardware-preflight` | CLI-диагностика Windows/Python/FFmpeg/GPU/VRAM/PyTorch/HF и автономные тесты |
 | P03 | [DRAFT, PR #3](https://github.com/AlmazovAN/Irikin-whisperX/pull/3); ожидает Windows-тестов | `feature/p03-windows-install` | CPU/NVIDIA wheel-профили, кандидатные pin-версии, защитный установщик, unit-тесты |
-| P04 | PLANNED | — | Локальная безопасность и конфигурация |
+| P04 | DRAFT, ожидает проверок | `fix/p04-local-security` | Loopback Gradio/FastAPI, безопасные пути, очистка секретов YAML/Task, .env |
 | P05 | PLANNED | — | Windows launcher |
 | P06 | PLANNED | — | Реальный smoke-test и ADR |
 
@@ -44,3 +44,11 @@
 - `Install.bat` не удаляет прежний `venv`; повтор того же профиля разрешён только с `--reuse-venv` при наличии marker-файла.
 - Основные прямые зависимости закреплены, но полного lock с транзитивными хешами нет. Проверка `pip check` и реальное распознавание нужны для завершения P03/P06.
 - Следующие действия: аудит diff/тестов, фактический `Install.bat --profile cpu --dry-run` на Windows; после осознанного согласования — установка и протокол.
+
+### P04 — локальная безопасность
+
+- База: `feature/p03-windows-install`; PR #1–#3 до сих пор OPEN.
+- Добавлена защита loopback-only, убраны `eval()` и shell `start <path>`.
+- При сохранении YAML и Task секреты удаляются; существующая БД **не изменялась**.
+- Файл `backend/records.db` уже отслеживается Git и **не удалён**: `.gitignore` не отменяет ранее добавленный файл; миграцию выполнять отдельно после аудита данных.
+- Автоматическая проверка на Windows/Gradio/FastAPI и реальная инференция ещё не подтверждены.
