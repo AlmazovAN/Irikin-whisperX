@@ -8,6 +8,7 @@ from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
+import shutil
 from pathlib import Path
 import sqlite3
 from typing import Sequence
@@ -232,6 +233,72 @@ class JobService:
                 finished_at=row["finished_at"],
             ) for row in rows
         )
+
+
+    def delete_terminal(self, identifier: str, *, confirmed: bool = False) -> bool:
+        """Delete only a confirmed terminal UUID under a SQLite write lock.
+
+        Rename to a private quarantine name before DB commit. Failed commits
+        restore the original folder. If cleanup fails after DB commit, leave
+        the quarantine directory intact and report an explicit error.
+        """
+        if confirmed is not True:
+            raise JobIntakeError("DELETE_NOT_CONFIRMED", "Explicit confirmation is required")
+        try:
+            if str(UUID(identifier)) != identifier:
+                raise ValueError("Noncanonical UUID")
+        except (ValueError, TypeError, AttributeError):
+            raise JobIntakeError("JOB_NOT_FOUND", "Job does not exist") from None
+
+        folder = self.storage.root / identifier
+        quarantine = self.storage.root / f".deleting-{identifier}"
+        moved = False
+        with closing(self._connect()) as conn:
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                row = conn.execute(
+                    "SELECT status FROM tasks WHERE uuid=? AND task_type='TRANSCRIPTION'",
+                    (identifier,),
+                ).fetchone()
+                if row is None:
+                    raise JobIntakeError("JOB_NOT_FOUND", "Job does not exist")
+                if row["status"] not in ("COMPLETED", "FAILED", "CANCELLED", "INTERRUPTED"):
+                    raise JobIntakeError("JOB_ACTIVE", "Cannot delete a queued or running job")
+                if (folder.is_symlink() or not folder.is_dir()
+                        or (hasattr(folder, "is_junction") and folder.is_junction())
+                        or quarantine.exists() or quarantine.is_symlink()):
+                    raise JobIntakeError("UNSAFE_JOB_DIRECTORY", "Job directory is unsafe")
+                try:
+                    folder.rename(quarantine)
+                except OSError:
+                    raise JobIntakeError("DELETE_MOVE_FAILED", "Cannot stage deletion") from None
+                moved = True
+                cursor = conn.execute("""
+                    DELETE FROM tasks WHERE uuid=? AND task_type='TRANSCRIPTION'
+                      AND status IN ('COMPLETED','FAILED','CANCELLED','INTERRUPTED')
+                """, (identifier,))
+                if cursor.rowcount != 1:
+                    raise JobIntakeError("JOB_CHANGED", "Job state changed during deletion")
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                if moved:
+                    try:
+                        quarantine.rename(folder)
+                    except OSError:
+                        raise JobIntakeError(
+                            "DELETE_RECOVERY_REQUIRED",
+                            "Job metadata remains; restore the quarantined directory manually",
+                        ) from None
+                raise
+        try:
+            shutil.rmtree(quarantine)
+        except OSError:
+            raise JobIntakeError(
+                "DELETE_CLEANUP_PENDING",
+                "Job record was deleted but the private directory needs manual cleanup",
+            ) from None
+        return True
 
     def cancel(self, identifier: str) -> bool:
         """Persist a cooperative cancel request; never abort inference by force.
