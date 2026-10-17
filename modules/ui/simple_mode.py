@@ -348,7 +348,8 @@ def build_blocks(controller: SimpleModeController, *, gradio: Any = None) -> Any
 
     def refresh_history(current_identifier: str) -> Any:
         choices, selected = controller.history_options(current_identifier)
-        return gradio.update(choices=choices, value=selected)
+        # A refreshed selection must never inherit a stale deletion approval.
+        return gradio.update(choices=choices, value=selected), False
 
     with gradio.Blocks() as blocks:
         gradio.Markdown(
@@ -450,15 +451,15 @@ def build_blocks(controller: SimpleModeController, *, gradio: Any = None) -> Any
                     label="Действие с заданием", interactive=False,
                 )
                 blocks.load(
-                    fn=refresh_history, inputs=[browser_job], outputs=[history],
+                    fn=refresh_history, inputs=[browser_job], outputs=[history, confirm_delete],
                     queue=False, show_progress="hidden", api_name=False,
                 )
                 upload_event.then(
-                    fn=refresh_history, inputs=[browser_job], outputs=[history],
+                    fn=refresh_history, inputs=[browser_job], outputs=[history, confirm_delete],
                     queue=False, show_progress="hidden", api_name=False,
                 )
                 refresh_button.click(
-                    fn=refresh_history, inputs=[browser_job], outputs=[history],
+                    fn=refresh_history, inputs=[browser_job], outputs=[history, confirm_delete],
                     queue=False, api_name=False,
                 )
                 history.select(
@@ -478,7 +479,7 @@ def build_blocks(controller: SimpleModeController, *, gradio: Any = None) -> Any
                     queue=False, api_name=False,
                 )
                 deleted.then(
-                    fn=refresh_history, inputs=[browser_job], outputs=[history],
+                    fn=refresh_history, inputs=[browser_job], outputs=[history, confirm_delete],
                     queue=False, show_progress="hidden", api_name=False,
                 ).then(
                     fn=controller.poll_with_preview, inputs=[browser_job],
