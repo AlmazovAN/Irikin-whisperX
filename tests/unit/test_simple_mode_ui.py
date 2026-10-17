@@ -177,11 +177,17 @@ def test_create_runtime_uses_same_service_and_trusted_temp_root(tmp_path, monkey
 
 
 class FakeContext:
+    def __init__(self, owner=None):
+        self.owner = owner
+
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc, traceback):
         return False
+
+    def load(self, **kwargs):
+        self.owner.loads.append(kwargs)
 
 
 class FakeElement:
@@ -195,6 +201,9 @@ class FakeElement:
             "fn": fn, "inputs": inputs, "outputs": outputs, "api_name": api_name,
         })
 
+    def tick(self, **kwargs):
+        self.owner.ticks.append(kwargs)
+
 
 class FakeGradio:
     def __init__(self):
@@ -202,9 +211,11 @@ class FakeGradio:
         self.elements = []
         self.clicks = []
         self.tabs = []
+        self.loads = []
+        self.ticks = []
 
     def Blocks(self):
-        return FakeContext()
+        return FakeContext(self)
 
     def Tabs(self):
         return FakeContext()
@@ -231,6 +242,21 @@ class FakeGradio:
         self.elements.append(obj)
         return obj
 
+    def Slider(self, **kwargs):
+        obj = FakeElement(self, "Slider", **kwargs)
+        self.elements.append(obj)
+        return obj
+
+    def BrowserState(self, value, **kwargs):
+        obj = FakeElement(self, "BrowserState", value=value, **kwargs)
+        self.elements.append(obj)
+        return obj
+
+    def Timer(self, **kwargs):
+        obj = FakeElement(self, "Timer", **kwargs)
+        self.elements.append(obj)
+        return obj
+
 
 def test_simple_blocks_have_drag_drop_one_launch_button_and_separate_advanced(env):
     jobs, worker, stage = env
@@ -249,15 +275,31 @@ def test_simple_blocks_have_drag_drop_one_launch_button_and_separate_advanced(en
     assert len(gr.clicks) == 1
     callback = gr.clicks[0]
     assert callback["api_name"] is False
-    assert callback["inputs"] == [uploads]
-    assert len(callback["outputs"]) == 2
+    browser = next(e for e in gr.elements if e.name == "BrowserState")
+    slider = next(e for e in gr.elements if e.name == "Slider")
+    assert callback["inputs"] == [uploads, browser]
+    assert len(callback["outputs"]) == 5
+    assert callback["outputs"][-1] is browser
+    assert slider.kwargs["interactive"] is False
+    assert browser.kwargs["storage_key"] and browser.kwargs["secret"]
+    assert len(gr.loads) == 1 and len(gr.ticks) == 1
+    assert gr.loads[0]["inputs"] == [browser]
+    assert gr.ticks[0]["inputs"] == [browser]
+    assert gr.loads[0]["queue"] is False
+    assert gr.ticks[0]["queue"] is False
+    assert gr.ticks[0]["outputs"] == gr.loads[0]["outputs"]
     assert any("Small" in s and "ru" in s for s in gr.markdowns)
     assert any("Start.bat --ui-mode advanced" in s for s in gr.markdowns)
 
     # The actual Gradio-bound function performs only a durable submit.
-    uid, response = callback["fn"](str(wav(stage / "hash" / "ui.wav")))
+    uid, response, stage_text, milestone, saved = callback["fn"](
+        str(wav(stage / "hash" / "ui.wav")), ""
+    )
     assert jobs.get(uid).status == "QUEUED"
     assert response.startswith("В очереди")
+    assert saved == uid and stage_text == "В очереди" and milestone == 0
+    assert gr.loads[0]["fn"](saved)[0] == uid
+    assert gr.ticks[0]["fn"](saved)[0] == uid
     assert worker.wakes == 1
 
 
@@ -267,7 +309,7 @@ def test_empty_ui_event_does_not_initialize_whisper_model(env):
     build_blocks(SimpleModeController(jobs, worker), gradio=gr)
     assert jobs.list_jobs() == ()
     assert worker.wakes == 0
-    gr.clicks[0]["fn"](None)
+    gr.clicks[0]["fn"](None, "")
     assert jobs.list_jobs() == ()
 
 
