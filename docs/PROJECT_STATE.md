@@ -227,3 +227,25 @@ Windows/PyTorch/WhisperX, как договорились, переноситс�
 - CI/MERGED подтверждать по GitHub, не по записи в этой ветке.
 - Windows/NTFS, real WhisperX/Pyannote, аварийное отключение питания: NOT_RUN.
 - Далее P19 плана / GitHub PR #20: cancellation/error regression и gate.
+
+
+### P19 (GitHub PR #20) — cooperative cancel + error regression
+
+- База: a19e737fdbd4c52c3508dadc1be8ec4ffbd2c274.
+- Ветка: feature/pr20-cooperative-cancel-errors.
+- JobService.cancel() ставит сохраняемый CANCEL_REQUESTED для активной
+  попытки; QUEUED отменяется сразу. Worker проверяет запрос на этапах
+  и перед/в ходе финального перехода SQLite.
+- TranscriptionService передаёт cancel_event в legacy pipeline и
+  возвращает код CANCELLED вместо PIPELINE_FAILED.
+- После ошибок модель offload и не переиспользует повреждённый runtime;
+  исчерпанный OOM даёт OUT_OF_MEMORY, FFprobe/Pyannote — штатные коды.
+- Recovery сохраняет отмену после аварии: готовый bundle не превращает
+  отказ пользователя в COMPLETED.
+- Добавлены offline регрессии отмены, сохранности аудио, FIFO, ошибок
+  и retry без дублирования.
+- Документация: docs/pr20-cancellation-regressions.md.
+- Windows/real model/браузерные E2E NOT_RUN.
+- Фактический MERGED/CI проверить по GitHub, не по тексту ветки.
+- Следующий этап: P20–P25 — простая браузерная оболочка/история/скачивание,
+  интеграция единственного owner через JobService.
