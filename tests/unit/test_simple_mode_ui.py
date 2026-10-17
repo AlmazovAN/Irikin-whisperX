@@ -190,16 +190,27 @@ class FakeContext:
         self.owner.loads.append(kwargs)
 
 
+class FakeDependency:
+    def __init__(self, owner):
+        self.owner = owner
+
+    def then(self, **kwargs):
+        self.owner.thens.append(kwargs)
+        return self
+
+
 class FakeElement:
     def __init__(self, owner, name, **kwargs):
         self.owner = owner
         self.name = name
         self.kwargs = kwargs
 
-    def click(self, *, fn, inputs, outputs, api_name):
-        self.owner.clicks.append({
-            "fn": fn, "inputs": inputs, "outputs": outputs, "api_name": api_name,
-        })
+    def click(self, **kwargs):
+        self.owner.clicks.append(kwargs)
+        return FakeDependency(self.owner)
+
+    def select(self, **kwargs):
+        self.owner.selects.append(kwargs)
 
     def tick(self, **kwargs):
         self.owner.ticks.append(kwargs)
@@ -217,6 +228,12 @@ class FakeGradio:
         self.loads = []
         self.ticks = []
         self.changes = []
+        self.selects = []
+        self.thens = []
+
+    @staticmethod
+    def update(**kwargs):
+        return kwargs
 
     def Blocks(self):
         return FakeContext(self)
@@ -266,6 +283,16 @@ class FakeGradio:
         self.elements.append(obj)
         return obj
 
+    def Dropdown(self, **kwargs):
+        obj = FakeElement(self, "Dropdown", **kwargs)
+        self.elements.append(obj)
+        return obj
+
+    def Checkbox(self, **kwargs):
+        obj = FakeElement(self, "Checkbox", **kwargs)
+        self.elements.append(obj)
+        return obj
+
 
 def test_simple_blocks_have_drag_drop_one_launch_button_and_separate_advanced(env):
     jobs, worker, stage = env
@@ -279,20 +306,22 @@ def test_simple_blocks_have_drag_drop_one_launch_button_and_separate_advanced(en
     assert uploads.kwargs["file_count"] == "single"
     assert sorted(uploads.kwargs["file_types"]) == [".m4a", ".mp3", ".ogg", ".wav"]
     buttons = [e for e in gr.elements if e.name == "Button"]
-    assert len(buttons) == 1
-    assert buttons[0].kwargs["title"] == "Начать обработку"
-    assert len(gr.clicks) == 1
+    assert any(b.kwargs["title"] == "Начать обработку" for b in buttons)
+    assert any(b.kwargs["title"] == "Обновить историю" for b in buttons)
+    assert any(b.kwargs["title"] == "Открыть папку результата" for b in buttons)
+    assert any(b.kwargs["title"] == "Удалить выбранное задание" for b in buttons)
     callback = gr.clicks[0]
     assert callback["api_name"] is False
     browser = next(e for e in gr.elements if e.name == "BrowserState")
     slider = next(e for e in gr.elements if e.name == "Slider")
     assert callback["inputs"] == [uploads, browser]
-    assert len(callback["outputs"]) == 6
-    assert callback["outputs"][-2] is browser
+    assert len(callback["outputs"]) == 7
+    assert callback["outputs"][-3] is browser
     download = next(e for e in gr.elements if e.name == "DownloadButton")
     assert download.kwargs["title"] == "Скачать TXT"
     assert download.kwargs["value"] is None
-    assert callback["outputs"][-1] is download
+    assert callback["outputs"][-2] is download
+    assert callback["outputs"][-1].name == "Textbox"
     assert len(gr.changes) == 1
     assert gr.changes[0]["inputs"] == [browser]
     assert gr.changes[0]["outputs"] == []
@@ -301,25 +330,31 @@ def test_simple_blocks_have_drag_drop_one_launch_button_and_separate_advanced(en
     assert "click()" in gr.changes[0]["js"]
     assert slider.kwargs["interactive"] is False
     assert browser.kwargs["storage_key"] and browser.kwargs["secret"]
-    assert len(gr.loads) == 1 and len(gr.ticks) == 1
+    assert len(gr.loads) == 2 and len(gr.ticks) == 1
+    assert len(gr.selects) == 1 and len(gr.thens) >= 3
+    assert len([e for e in gr.elements if e.name == "Dropdown"]) == 1
+    assert len([e for e in gr.elements if e.name == "Checkbox"]) == 1
     assert gr.loads[0]["inputs"] == [browser]
     assert gr.ticks[0]["inputs"] == [browser]
     assert gr.loads[0]["queue"] is False
     assert gr.ticks[0]["queue"] is False
     assert gr.ticks[0]["outputs"] == gr.loads[0]["outputs"]
-    assert gr.ticks[0]["outputs"][-1] is download
+    assert gr.ticks[0]["outputs"][-2] is download
     assert any("Small" in s and "ru" in s for s in gr.markdowns)
     assert any("Start.bat --ui-mode advanced" in s for s in gr.markdowns)
 
     # The actual Gradio-bound function performs only a durable submit.
-    uid, response, stage_text, milestone, saved, file = callback["fn"](
+    uid, response, stage_text, milestone, saved, file, preview = callback["fn"](
         str(wav(stage / "hash" / "ui.wav")), ""
     )
     assert jobs.get(uid).status == "QUEUED"
     assert response.startswith("В очереди")
     assert saved == uid and stage_text == "В очереди" and milestone == 0
-    assert file is None
+    assert file is None and preview == ""
     assert gr.loads[0]["fn"](saved)[0] == uid
+    history_choice = gr.loads[1]["fn"](saved)
+    assert history_choice["value"] == uid
+    assert any(u == uid for _, u in history_choice["choices"])
     assert gr.ticks[0]["fn"](saved)[0] == uid
     assert worker.wakes == 1
 
