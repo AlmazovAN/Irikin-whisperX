@@ -1,8 +1,8 @@
-"""P20/P21: durable Gradio intake, SQLite polling and browser reconnect.
+"""P20-P23: durable intake, browser reconnect and verified TXT downloads.
 
 Gradio is imported only when constructing the interface. All heavy inference
 is owned exclusively by the single background JobWorker, never a UI callback.
-Downloads and history belong to following PRs.
+History and postprocessing integrations belong to following PRs.
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import sqlite3
 from uuid import UUID
 from typing import Any
 
+from modules.jobs.artifacts import ArtifactError
 from modules.jobs.inputs import AUDIO_EXTENSIONS, InputSource, InputValidationError
 from modules.jobs.service import JobIntakeError, JobService
 from modules.jobs.storage import DEFAULT_JOB_ROOT, JobStorageError
@@ -25,6 +26,34 @@ _SUPPORTED_FILE_TYPES = [".mp3", ".wav", ".m4a", ".ogg"]
 # or transcripts. Stable keys let BrowserState survive localhost restarts.
 _BROWSER_STORAGE_KEY = "irikin-whisperx.simple.last-job.v1"
 _BROWSER_STORAGE_SECRET = "irikin-whisperx.local-uuid-only.v1"
+# The browser attempts automatic download once per completed UUID. This is only
+# a convenience; popup/download policies may block it. Manual button remains.
+_DOWNLOAD_ELEM_ID = "mvp-download-txt"
+_AUTO_DOWNLOAD_JS = """
+(job_id) => {
+    if (typeof job_id !== "string" ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(job_id)) {
+        return [];
+    }
+    const storageKey = "irikin-whisperx.simple.auto-txt.v1";
+    try {
+        if (window.localStorage.getItem(storageKey) === job_id) return [];
+        const container = document.getElementById("mvp-download-txt");
+        if (!container) return [];
+        const link = (container.tagName === "A" && container.href)
+            ? container : container.querySelector("a[href]");
+        const button = container.querySelector("button:not([disabled])");
+        const target = link || button;
+        if (!target || target.disabled) return [];
+        // Record the attempt BEFORE clicking; browser success cannot be read.
+        window.localStorage.setItem(storageKey, job_id);
+        target.click();
+    } catch (_error) {
+        // Private browsing or blocked storage/download is not a job failure.
+    }
+    return [];
+}
+"""
 _STAGE_LABELS = {
     "QUEUED": "В очереди",
     "PREPARING": "Подготовка",
@@ -147,6 +176,55 @@ class SimpleModeController:
             milestone = 100
         return ticket.identifier, status, stage, milestone
 
+    def verified_txt_path(self, identifier: str) -> str | None:
+        """Return only a verified path from the durable completed job contract.
+
+        Gradio serves returned file outputs through its own localhost file
+        endpoint. Never accept a browser-supplied path or expose data/jobs
+        wholesale via allowed_paths.
+        """
+        try:
+            file = self.jobs.get_artifact(identifier, format="txt")
+        except (JobIntakeError, JobStorageError, ArtifactError, sqlite3.Error,
+                OSError, TypeError, ValueError):
+            return None
+        return str(file)
+
+    def poll_with_download(self, identifier: str) -> tuple[str, str, str, int, str | None]:
+        """Extend P21 status polling with a ready-to-download TXT, if verified."""
+        status = self.poll(identifier)
+        canonical_id = status[0]
+        if not canonical_id:
+            return (*status, None)
+        try:
+            ticket = self.jobs.get_status(canonical_id)
+        except (JobIntakeError, JobStorageError, sqlite3.Error, OSError):
+            return (*status, None)
+        if ticket is None or ticket.status != "COMPLETED":
+            return (*status, None)
+        file = self.verified_txt_path(canonical_id)
+        if file is None:
+            return (
+                canonical_id,
+                "Задание завершено, но файл TXT недоступен или повреждён. "
+                "Исходник и запись задания сохранены.",
+                status[2],
+                status[3],
+                None,
+            )
+        return (*status, file)
+
+    def submit_and_download(
+        self, upload: Any, previous_identifier: str,
+    ) -> tuple[str, str, str, int, str, str | None]:
+        """Clear old download on accepted new job; retain on rejected upload."""
+        previous = self.poll_with_download(previous_identifier)
+        identifier, message, stage, percent, stored = self.submit_and_store(
+            upload, previous_identifier,
+        )
+        old_file = previous[4] if identifier and identifier == previous[0] else None
+        return identifier, message, stage, percent, stored, old_file
+
     def submit_and_store(
         self, upload: Any, previous_identifier: str,
     ) -> tuple[str, str, str, int, str]:
@@ -215,31 +293,42 @@ def build_blocks(controller: SimpleModeController, *, gradio: Any = None) -> Any
                     "процент оставшейся вычислительной работы**. "
                     "На ASR она может долго не изменяться."
                 )
+                download = gradio.DownloadButton(
+                    "Скачать TXT", value=None, elem_id=_DOWNLOAD_ELEM_ID,
+                )
                 submit.click(
-                    fn=controller.submit_and_store,
+                    fn=controller.submit_and_download,
                     inputs=[uploaded, browser_job],
-                    outputs=[identifier, status, stage, progress, browser_job],
+                    outputs=[identifier, status, stage, progress, browser_job, download],
                     api_name=False,
                 )
                 # Load and tick obtain *fresh* snapshots via SQLite. The timer
                 # belongs to the browser view, never to the background worker.
                 blocks.load(
-                    fn=controller.poll,
+                    fn=controller.poll_with_download,
                     inputs=[browser_job],
-                    outputs=[identifier, status, stage, progress],
+                    outputs=[identifier, status, stage, progress, download],
                     queue=False, show_progress="hidden", api_name=False,
                 )
                 refresh = gradio.Timer(value=2.0, active=True)
                 refresh.tick(
-                    fn=controller.poll,
+                    fn=controller.poll_with_download,
                     inputs=[browser_job],
-                    outputs=[identifier, status, stage, progress],
+                    outputs=[identifier, status, stage, progress, download],
                     queue=False, show_progress="hidden", api_name=False,
                 )
+                # A changed DownloadButton is already populated with a Gradio
+                # file URL when this frontend-only listener is dispatched.
+                # JS is best-effort; manual DownloadButton always remains.
+                download.change(
+                    fn=None, inputs=[browser_job], outputs=[],
+                    js=_AUTO_DOWNLOAD_JS, queue=False, api_name=False,
+                )
                 gradio.Markdown(
-                    "Статус восстанавливается по ID после обновления или "
-                    "повторного открытия вкладки. Обработка продолжится, "
-                    "пока работает локальный сервер. Скачивание TXT — P23."
+                    "После завершения браузер попробует скачать TXT один раз. "
+                    "Если браузер запретит загрузку, нажмите **Скачать TXT**. "
+                    "Результат уже сохранён на ПК и доступен после "
+                    "повторного открытия вкладки."
                 )
             with gradio.Tab("Advanced"):
                 gradio.Markdown(

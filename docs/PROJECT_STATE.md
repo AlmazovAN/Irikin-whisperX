@@ -307,3 +307,31 @@ Windows/PyTorch/WhisperX, как договорились, переноситс�
 - Реальная Windows/Pyannote двухголосная приёмка: **NOT_RUN**.
   CI и MERGED проверять на GitHub отдельно; описание работ не доказывает merge.
 - Следующий шаг: P23 (ожидается GitHub PR #24) — авто/ручное скачивание TXT.
+
+
+### P23 / GitHub PR #24 — проверенное скачивание TXT
+
+- Базовый `master`: `b6dbb48c8b63e6da2d947d1ae9a113c8d070c31b`
+  после MERGED P22 / GitHub PR #23.
+- Simple Mode добавляет видимую `gr.DownloadButton("Скачать TXT")`,
+  путь получает только от `JobService.get_artifact(uuid, format="txt")`.
+  Валидация COMPLETED/attempt/manifest SHA-256 выполняется до выдачи;
+  при FAILED, INTERRUPTED, повреждении или отсутствии файла ссылка не
+  создаётся. Worker/ASR/SQLite схема не меняются.
+- `Blocks.load/Timer.tick` возвращают путь для ручного скачивания после
+  повторного открытия вкладки. В `DownloadButton.change` JS делает
+  best-effort единственную автоматическую попытку на UUID,
+  сохраняя флаг в localStorage. Блокировка браузером не удаляет
+  сохранённый результат; ручная кнопка остаётся доступной.
+- Используется встроенная файловая выдача Gradio, **не добавляли**
+  `allowed_paths` для всего `data/jobs` и не создавали второй сервер.
+  Результат остаётся в durable jobs, Gradio может кэшировать временную копию.
+- При новом успешном upload старая кнопка сбрасывается, при отказе
+  сохраняется ссылка на прошлое корректное задание.
+- Тесты: fake Gradio + SQLite/worker/fake ASR + tamper/reload/submit;
+  описание `docs/pr24-txt-download.md`.
+- Реальный Gradio 5.49.1/Windows/браузер/WhisperX/Pyannote:
+  **NOT_RUN**, требуется P25.
+- GitHub CI/MERGED фиксировать по фактическому результату PR,
+  не считать текст подтверждением проверки.
+- Следующая позиция: P24 (вероятно GitHub PR #25) — мини-история заданий.

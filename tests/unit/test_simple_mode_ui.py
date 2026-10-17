@@ -204,6 +204,9 @@ class FakeElement:
     def tick(self, **kwargs):
         self.owner.ticks.append(kwargs)
 
+    def change(self, **kwargs):
+        self.owner.changes.append(kwargs)
+
 
 class FakeGradio:
     def __init__(self):
@@ -213,6 +216,7 @@ class FakeGradio:
         self.tabs = []
         self.loads = []
         self.ticks = []
+        self.changes = []
 
     def Blocks(self):
         return FakeContext(self)
@@ -257,6 +261,11 @@ class FakeGradio:
         self.elements.append(obj)
         return obj
 
+    def DownloadButton(self, title, **kwargs):
+        obj = FakeElement(self, "DownloadButton", title=title, **kwargs)
+        self.elements.append(obj)
+        return obj
+
 
 def test_simple_blocks_have_drag_drop_one_launch_button_and_separate_advanced(env):
     jobs, worker, stage = env
@@ -278,8 +287,18 @@ def test_simple_blocks_have_drag_drop_one_launch_button_and_separate_advanced(en
     browser = next(e for e in gr.elements if e.name == "BrowserState")
     slider = next(e for e in gr.elements if e.name == "Slider")
     assert callback["inputs"] == [uploads, browser]
-    assert len(callback["outputs"]) == 5
-    assert callback["outputs"][-1] is browser
+    assert len(callback["outputs"]) == 6
+    assert callback["outputs"][-2] is browser
+    download = next(e for e in gr.elements if e.name == "DownloadButton")
+    assert download.kwargs["title"] == "Скачать TXT"
+    assert download.kwargs["value"] is None
+    assert callback["outputs"][-1] is download
+    assert len(gr.changes) == 1
+    assert gr.changes[0]["inputs"] == [browser]
+    assert gr.changes[0]["outputs"] == []
+    assert gr.changes[0]["fn"] is None
+    assert "localStorage" in gr.changes[0]["js"]
+    assert "click()" in gr.changes[0]["js"]
     assert slider.kwargs["interactive"] is False
     assert browser.kwargs["storage_key"] and browser.kwargs["secret"]
     assert len(gr.loads) == 1 and len(gr.ticks) == 1
@@ -288,16 +307,18 @@ def test_simple_blocks_have_drag_drop_one_launch_button_and_separate_advanced(en
     assert gr.loads[0]["queue"] is False
     assert gr.ticks[0]["queue"] is False
     assert gr.ticks[0]["outputs"] == gr.loads[0]["outputs"]
+    assert gr.ticks[0]["outputs"][-1] is download
     assert any("Small" in s and "ru" in s for s in gr.markdowns)
     assert any("Start.bat --ui-mode advanced" in s for s in gr.markdowns)
 
     # The actual Gradio-bound function performs only a durable submit.
-    uid, response, stage_text, milestone, saved = callback["fn"](
+    uid, response, stage_text, milestone, saved, file = callback["fn"](
         str(wav(stage / "hash" / "ui.wav")), ""
     )
     assert jobs.get(uid).status == "QUEUED"
     assert response.startswith("В очереди")
     assert saved == uid and stage_text == "В очереди" and milestone == 0
+    assert file is None
     assert gr.loads[0]["fn"](saved)[0] == uid
     assert gr.ticks[0]["fn"](saved)[0] == uid
     assert worker.wakes == 1
