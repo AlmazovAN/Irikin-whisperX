@@ -122,6 +122,16 @@ class SimpleModeController:
             return name
         raise InputValidationError("FILE_REQUIRED", "Choose an audio file first")
 
+    @staticmethod
+    def check_readiness() -> str:
+        from modules.ui.readiness import readiness_message
+        return readiness_message()
+
+    @staticmethod
+    def save_hf_credentials(token: str) -> tuple[str, str]:
+        from modules.ui.readiness import save_hf_token
+        return save_hf_token(token), ""
+
     def submit(self, upload: Any) -> tuple[str, str]:
         """Synchronous durable intake only; no ASR work in the UI thread."""
         if upload is None or upload == "":
@@ -363,6 +373,29 @@ def build_blocks(controller: SimpleModeController, *, gradio: Any = None) -> Any
                     "**Модель:** Whisper Small · **Язык:** русский (ru) · "
                     "**Режим:** transcribe · **Спикеры:** включены"
                 )
+                gradio.Markdown("### Проверка готовности")
+                readiness_status = gradio.Textbox(
+                    label="Состояние установки", interactive=False, lines=6
+                )
+                readiness_button = gradio.Button("Проверить готовность")
+                with gradio.Accordion("Hugging Face — первоначальная настройка", open=False):
+                    gradio.Markdown(
+                        "Whisper Small загружается автоматически при первой обработке. "
+                        "Для разделения говорящих сначала один раз примите условия "
+                        "[Pyannote 3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) "
+                        "и [Segmentation 3.0](https://huggingface.co/pyannote/segmentation-3.0). "
+                        "Затем создайте [токен чтения](https://huggingface.co/settings/tokens). "
+                        "Он сохраняется в локальном, исключённом из Git файле .env "
+                        "в открытом виде; не используйте общий компьютер для секретов."
+                    )
+                    hf_token = gradio.Textbox(
+                        label="Токен Hugging Face (только при первой настройке)",
+                        type="password",
+                    )
+                    hf_save = gradio.Button("Сохранить токен на этом ПК")
+                    hf_feedback = gradio.Textbox(
+                        label="Сохранение настроек", interactive=False
+                    )
                 uploaded = gradio.File(
                     label="Аудиофайл (MP3, WAV, M4A, OGG)",
                     file_types=_SUPPORTED_FILE_TYPES,
@@ -486,6 +519,14 @@ def build_blocks(controller: SimpleModeController, *, gradio: Any = None) -> Any
                     outputs=[identifier, status, stage, progress, download, preview],
                     queue=False, show_progress="hidden", api_name=False,
                 )
+                readiness_button.click(
+                    fn=controller.check_readiness, inputs=[], outputs=[readiness_status],
+                    queue=True, api_name=False,
+                )
+                hf_save.click(
+                    fn=controller.save_hf_credentials, inputs=[hf_token],
+                    outputs=[hf_feedback, hf_token], queue=False, api_name=False,
+                )
             with gradio.Tab("Advanced"):
                 gradio.Markdown(
                     "Старый интерфейс с расширенными настройками сохранён. "
@@ -494,6 +535,12 @@ def build_blocks(controller: SimpleModeController, *, gradio: Any = None) -> Any
                     "В одном запуске используется только один режим, "
                     "чтобы не создавать две конкурирующие модели."
                 )
+        # Run lightweight readiness only when a browser connects, not during
+        # Python startup. It does not download or load speech models.
+        blocks.load(
+            fn=controller.check_readiness, inputs=[], outputs=[readiness_status],
+            queue=False, show_progress="hidden", api_name=False,
+        )
     return blocks
 
 
@@ -503,6 +550,8 @@ def launch_simple(args: Any, *, gradio: Any = None) -> None:
     host = validate_launch_settings(
         server_name=args.server_name, share=args.share, api_open=args.api_open,
     )
+    from modules.ui.readiness import load_local_environment
+    load_local_environment()  # Old .env must be usable in Simple Mode too.
     controller, worker = create_runtime()
     interface = build_blocks(controller, gradio=gradio)
     worker.start()  # Must own the lock BEFORE browser can submit a job.
