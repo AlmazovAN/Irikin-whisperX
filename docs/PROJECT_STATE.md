@@ -286,3 +286,24 @@ Windows/PyTorch/WhisperX, как договорились, переноситс�
   До подтверждения GitHub PR и CI не отмечать как MERGED/ACCEPTED.
 - Следующая позиция: P22 — TXT с таймкодами и спикерами, проверка
   существующих writer/экспорта без повторного распознавания.
+
+
+### P22 / GitHub PR #23 — согласованный TXT с таймкодами и спикерами
+
+- База `master` после P21 / PR #22: `f33bd27c68d6ec85c058e709679071c36bb8d7fc`.
+- Аудит установил: нормализованный JSON/TXT writer и атомарная публикация
+  уже реализованы в P12/P17. Вместо дублирования экспорта P22 только
+  приводит `render_txt()` к формату `[00:00:12] [SPEAKER_00]: Текст`.
+- В TXT выводится start, округлённый **вниз** до целых секунд;
+  точные start/end/words/speaker остаются в JSON schema_version=1.
+  При неизвестном speaker не выдумывается SPEAKER_XX; текст сохраняется.
+- Существующий legacy `WriteTXT` для субтитров не изменён.
+  Старые опубликованные bundle и manifest не перезаписываются.
+- Обновлены `tests/unit/test_normalized_results.py`; добавлены
+  `tests/unit/test_mvp_transcript_txt.py` с реальным SQLite + JobWorker
+  и фальшивым ASR, проверкой `get_artifact()`, несовпадающих таймкодов,
+  missing start, нескольких спикеров и UTF-8.
+- Контракт: `docs/pr23-transcript-txt.md`.
+- Реальная Windows/Pyannote двухголосная приёмка: **NOT_RUN**.
+  CI и MERGED проверять на GitHub отдельно; описание работ не доказывает merge.
+- Следующий шаг: P23 (ожидается GitHub PR #24) — авто/ручное скачивание TXT.
