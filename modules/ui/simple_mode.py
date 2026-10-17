@@ -1,8 +1,8 @@
-"""P20-P23: durable intake, browser reconnect and verified TXT downloads.
+"""P20-P24: durable intake, SQLite history and verified transcript previews.
 
 Gradio is imported only when constructing the interface. All heavy inference
 is owned exclusively by the single background JobWorker, never a UI callback.
-History and postprocessing integrations belong to following PRs.
+All heavy inference remains in the existing single JobWorker.
 """
 from __future__ import annotations
 
@@ -22,6 +22,8 @@ from modules.jobs.worker import JobWorker
 
 _ERROR_TYPES = (InputValidationError, JobIntakeError, JobStorageError)
 _SUPPORTED_FILE_TYPES = [".mp3", ".wav", ".m4a", ".ogg"]
+_PREVIEW_BYTES = 12 * 1024
+_HISTORY_LIMIT = 30
 # Only an opaque job UUID is stored in browser localStorage, never audio, paths
 # or transcripts. Stable keys let BrowserState survive localhost restarts.
 _BROWSER_STORAGE_KEY = "irikin-whisperx.simple.last-job.v1"
@@ -101,7 +103,7 @@ def upload_directory() -> Path:
 
 
 class SimpleModeController:
-    """Submit-only UI adapter, independent of Gradio and ML imports."""
+    """Local UI adapter independent of Gradio and ML imports."""
 
     def __init__(self, jobs: JobService, worker: JobWorker):
         if worker.jobs is not jobs:
@@ -213,6 +215,95 @@ class SimpleModeController:
                 None,
             )
         return (*status, file)
+
+
+    def history_options(self, selected_id: str) -> tuple[list[tuple[str, str]], str | None]:
+        """Most recent durable jobs, with labels not filesystem paths."""
+        tickets = self.jobs.list_jobs(limit=_HISTORY_LIMIT)
+        choices: list[tuple[str, str]] = []
+        for ticket in tickets:
+            safe_name = re.sub(r"[\\x00-\\x1f\\x7f]", " ", ticket.file_name)[:90]
+            label = (
+                f"{ticket.created_at[:16]} · {safe_name} · "
+                f"{ticket.status} · {ticket.model_name}"
+            )
+            choices.append((label, ticket.identifier))
+        valid = {identifier for _, identifier in choices}
+        return choices, selected_id if selected_id in valid else None
+
+    def preview(self, identifier: str) -> str:
+        """Bounded preview of SHA-verified TXT; no background ASR or file paths."""
+        file = self.verified_txt_path(identifier)
+        if file is None:
+            return ""
+        try:
+            with Path(file).open("rb") as stream:
+                content = stream.read(_PREVIEW_BYTES + 1)
+        except OSError:
+            return "Предпросмотр временно недоступен."
+        more = len(content) > _PREVIEW_BYTES
+        text = content[:_PREVIEW_BYTES].decode("utf-8", errors="replace")
+        return text + ("\\n… Показано начало TXT. Скачайте файл целиком." if more else "")
+
+    def poll_with_preview(
+        self, identifier: str,
+    ) -> tuple[str, str, str, int, str | None, str]:
+        data = self.poll_with_download(identifier)
+        return (*data, self.preview(data[0]) if data[4] is not None else "")
+
+    def select_history(
+        self, identifier: str,
+    ) -> tuple[str, str, str, int, str | None, str, str, bool]:
+        """Selecting a past job updates BrowserState; never starts inference."""
+        current = self.poll_with_preview(identifier)
+        return (*current[:5], current[0], current[5], False)
+
+    def submit_with_preview(
+        self, upload: Any, previous_identifier: str,
+    ) -> tuple[str, str, str, int, str, str | None, str]:
+        result = self.submit_and_download(upload, previous_identifier)
+        return (*result, self.preview(result[0]) if result[5] else "")
+
+    def open_result_folder(self, identifier: str, *, opener: Any = None) -> str:
+        """Open only a verified result directory on the local Windows host."""
+        file = self.verified_txt_path(identifier)
+        if file is None:
+            return "Папка доступна только для завершённого задания с целым TXT."
+        chosen = opener if opener is not None else getattr(os, "startfile", None)
+        if not callable(chosen):
+            return "Открытие папки поддерживается в Windows при запуске на этом ПК."
+        try:
+            chosen(str(Path(file).parent))
+        except OSError:
+            return "Не удалось открыть папку результата."
+        return "Папка результата открыта в файловом менеджере."
+
+    def delete_selected(
+        self, selected: str, confirmed: bool, browser_id: str,
+    ) -> tuple[str, str, bool]:
+        """Never delete on selection or refresh; require explicit checkbox."""
+        if confirmed is not True:
+            return "Для удаления установите флажок подтверждения.", browser_id, False
+        try:
+            self.jobs.delete_terminal(selected, confirmed=True)
+        except JobIntakeError as exc:
+            if exc.code == "DELETE_CLEANUP_PENDING":
+                return (
+                    "Запись удалена, но очистка файлов не завершена. "
+                    "Проверьте локальный каталог вручную.",
+                    "" if selected == browser_id else browser_id,
+                    False,
+                )
+            if exc.code == "JOB_ACTIVE":
+                return "Активное задание удалить нельзя.", browser_id, False
+            return f"Удаление отклонено: {exc.code}.", browser_id, False
+        except (sqlite3.Error, OSError, JobStorageError):
+            return "Ошибка удаления. Данные задания сохранены.", browser_id, False
+        return (
+            "Задание и его локальные файлы удалены.",
+            "" if selected == browser_id else browser_id,
+            False,
+        )
 
     def submit_and_download(
         self, upload: Any, previous_identifier: str,
