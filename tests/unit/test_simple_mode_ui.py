@@ -241,6 +241,9 @@ class FakeGradio:
     def Tabs(self):
         return FakeContext()
 
+    def Accordion(self, title, **kwargs):
+        return FakeContext()
+
     def Tab(self, name):
         self.tabs.append(name)
         return FakeContext()
@@ -330,7 +333,7 @@ def test_simple_blocks_have_drag_drop_one_launch_button_and_separate_advanced(en
     assert "click()" in gr.changes[0]["js"]
     assert slider.kwargs["interactive"] is False
     assert browser.kwargs["storage_key"] and browser.kwargs["secret"]
-    assert len(gr.loads) == 2 and len(gr.ticks) == 1
+    assert len(gr.loads) == 3 and len(gr.ticks) == 1
     assert len(gr.selects) == 1 and len(gr.thens) >= 3
     assert len([e for e in gr.elements if e.name == "Dropdown"]) == 1
     assert len([e for e in gr.elements if e.name == "Checkbox"]) == 1
@@ -342,6 +345,10 @@ def test_simple_blocks_have_drag_drop_one_launch_button_and_separate_advanced(en
     assert gr.ticks[0]["outputs"][-2] is download
     assert any("Small" in s and "ru" in s for s in gr.markdowns)
     assert any("Start.bat --ui-mode advanced" in s for s in gr.markdowns)
+    assert any(e.kwargs.get("title") == "Проверить готовность"
+               for e in gr.elements if e.name == "Button")
+    assert gr.loads[-1]["inputs"] == []
+    assert gr.loads[-1]["fn"].__name__ == "check_readiness"
 
     # The actual Gradio-bound function performs only a durable submit.
     uid, response, stage_text, milestone, saved, file, preview = callback["fn"](
