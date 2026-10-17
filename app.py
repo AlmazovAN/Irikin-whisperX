@@ -3,6 +3,13 @@ import argparse
 import inspect
 import threading
 from pathlib import Path
+
+# Gradio's upload directory must be defined before Gradio is imported.
+# Simple Mode accepts only files uploaded into this local trusted root.
+os.environ.setdefault(
+    "GRADIO_TEMP_DIR",
+    str(Path(__file__).resolve().parent / "data" / "ui_uploads"),
+)
 from dotenv import load_dotenv
 import gradio as gr
 import numpy as np
@@ -925,6 +932,10 @@ class App:
 
 
 parser = argparse.ArgumentParser()
+parser.add_argument('--ui_mode', '--ui-mode', choices=('simple', 'advanced'),
+                    default='simple',
+                    help='Simple: durable Small/ru job queue (default). '
+                         'Advanced: legacy direct-ASR features; restart to switch.')
 parser.add_argument('--whisper_type', type=str, default=WhisperImpl.WHISPERX.value,
                     choices=[item.value for item in WhisperImpl],
                     help='A type of the whisper implementation (Github repo name)')
@@ -968,5 +979,13 @@ _args = parser.parse_args()
 if __name__ == "__main__":
     validate_launch_settings(server_name=_args.server_name, share=_args.share, api_open=_args.api_open)
     allowed_output_paths(_args.output_dir, _args.allowed_paths)
-    app = App(args=_args)
-    app.launch()
+    if _args.ui_mode == "simple":
+        # Do NOT instantiate legacy WhisperFactory/NLLB/App in Simple Mode.
+        # The Gradio callback only queues; JobWorker alone owns the model.
+        from modules.ui.simple_mode import launch_simple
+        launch_simple(_args)
+    else:
+        # Advanced preserves the original UI, but is a separate server mode:
+        # never start the new worker alongside direct legacy inference.
+        app = App(args=_args)
+        app.launch()
