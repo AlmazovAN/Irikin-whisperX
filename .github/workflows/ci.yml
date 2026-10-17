@@ -33,7 +33,7 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: Install lightweight test runner
-        run: python -m pip install pytest
+        run: python -m pip install pytest python-dotenv
       - name: Check Python syntax (no imports or model downloads)
         run: python -m compileall -q app.py backend modules scripts tests
       - name: Check shell script syntax

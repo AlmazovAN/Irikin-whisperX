@@ -1,6 +1,17 @@
 # Whisper-WebUI
 
 
+## First-run setup from the local browser
+
+Once the Windows CPU environment is installed, `Start.bat` opens the local
+Simple Mode. **«Проверить готовность»** checks Python, FFmpeg, installed
+libraries, PyTorch import and Hugging Face authentication, with readable
+errors and no fake model success. A collapsed Hugging Face setup panel
+lets you save your own read token locally after accepting Pyannote terms.
+The existing WhisperX pipeline downloads weights on first inference.
+This does **not** install system dependencies or replace real Windows MVP QA.
+See [Первый запуск](docs/first-run.md).
+
 ## Irikin-whisperX MVP — P25 acceptance (release not yet approved)
 
 This fork's Windows Simple Mode is designed for **local** Russian transcription:
