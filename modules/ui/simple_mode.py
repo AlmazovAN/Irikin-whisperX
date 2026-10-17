@@ -346,6 +346,10 @@ def build_blocks(controller: SimpleModeController, *, gradio: Any = None) -> Any
     if not isinstance(controller, SimpleModeController):
         raise TypeError("Expected SimpleModeController")
 
+    def refresh_history(current_identifier: str) -> Any:
+        choices, selected = controller.history_options(current_identifier)
+        return gradio.update(choices=choices, value=selected)
+
     with gradio.Blocks() as blocks:
         gradio.Markdown(
             "# WhisperX — локальная расшифровка\n"
@@ -387,25 +391,29 @@ def build_blocks(controller: SimpleModeController, *, gradio: Any = None) -> Any
                 download = gradio.DownloadButton(
                     "Скачать TXT", value=None, elem_id=_DOWNLOAD_ELEM_ID,
                 )
-                submit.click(
-                    fn=controller.submit_and_download,
+                preview = gradio.Textbox(
+                    label="Предпросмотр стенограммы (начало файла)",
+                    interactive=False, lines=8,
+                )
+                upload_event = submit.click(
+                    fn=controller.submit_with_preview,
                     inputs=[uploaded, browser_job],
-                    outputs=[identifier, status, stage, progress, browser_job, download],
+                    outputs=[identifier, status, stage, progress, browser_job, download, preview],
                     api_name=False,
                 )
                 # Load and tick obtain *fresh* snapshots via SQLite. The timer
                 # belongs to the browser view, never to the background worker.
                 blocks.load(
-                    fn=controller.poll_with_download,
+                    fn=controller.poll_with_preview,
                     inputs=[browser_job],
-                    outputs=[identifier, status, stage, progress, download],
+                    outputs=[identifier, status, stage, progress, download, preview],
                     queue=False, show_progress="hidden", api_name=False,
                 )
                 refresh = gradio.Timer(value=2.0, active=True)
                 refresh.tick(
-                    fn=controller.poll_with_download,
+                    fn=controller.poll_with_preview,
                     inputs=[browser_job],
-                    outputs=[identifier, status, stage, progress, download],
+                    outputs=[identifier, status, stage, progress, download, preview],
                     queue=False, show_progress="hidden", api_name=False,
                 )
                 # A changed DownloadButton is already populated with a Gradio
@@ -420,6 +428,62 @@ def build_blocks(controller: SimpleModeController, *, gradio: Any = None) -> Any
                     "Если браузер запретит загрузку, нажмите **Скачать TXT**. "
                     "Результат уже сохранён на ПК и доступен после "
                     "повторного открытия вкладки."
+                )
+                gradio.Markdown(
+                    "### История последних заданий\\n"
+                    "Список хранится в локальной SQLite. Выбор не запускает "
+                    "повторную обработку."
+                )
+                history = gradio.Dropdown(
+                    choices=[], value=None, label="Последние 30 заданий",
+                    interactive=True,
+                )
+                refresh_button = gradio.Button("Обновить историю")
+                open_button = gradio.Button("Открыть папку результата")
+                confirm_delete = gradio.Checkbox(
+                    label="Подтверждаю безвозвратное удаление выбранного "
+                          "задания, исходного аудио и результатов",
+                    value=False,
+                )
+                delete_button = gradio.Button("Удалить выбранное задание")
+                history_message = gradio.Textbox(
+                    label="Действие с заданием", interactive=False,
+                )
+                blocks.load(
+                    fn=refresh_history, inputs=[browser_job], outputs=[history],
+                    queue=False, show_progress="hidden", api_name=False,
+                )
+                upload_event.then(
+                    fn=refresh_history, inputs=[browser_job], outputs=[history],
+                    queue=False, show_progress="hidden", api_name=False,
+                )
+                refresh_button.click(
+                    fn=refresh_history, inputs=[browser_job], outputs=[history],
+                    queue=False, api_name=False,
+                )
+                history.select(
+                    fn=controller.select_history, inputs=[history],
+                    outputs=[identifier, status, stage, progress, download,
+                             browser_job, preview, confirm_delete],
+                    queue=False, api_name=False,
+                )
+                open_button.click(
+                    fn=controller.open_result_folder, inputs=[history],
+                    outputs=[history_message], queue=False, api_name=False,
+                )
+                deleted = delete_button.click(
+                    fn=controller.delete_selected,
+                    inputs=[history, confirm_delete, browser_job],
+                    outputs=[history_message, browser_job, confirm_delete],
+                    queue=False, api_name=False,
+                )
+                deleted.then(
+                    fn=refresh_history, inputs=[browser_job], outputs=[history],
+                    queue=False, show_progress="hidden", api_name=False,
+                ).then(
+                    fn=controller.poll_with_preview, inputs=[browser_job],
+                    outputs=[identifier, status, stage, progress, download, preview],
+                    queue=False, show_progress="hidden", api_name=False,
                 )
             with gradio.Tab("Advanced"):
                 gradio.Markdown(
