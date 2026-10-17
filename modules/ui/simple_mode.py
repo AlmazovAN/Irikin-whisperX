@@ -1,13 +1,17 @@
-"""PR21 / P20: one-screen job intake with no direct WhisperX invocation.
+"""P20/P21: durable Gradio intake, SQLite polling and browser reconnect.
 
 Gradio is imported only when constructing the interface. All heavy inference
 is owned exclusively by the single background JobWorker, never a UI callback.
-Job polling/reconnect, downloads and history belong to following PRs.
+Downloads and history belong to following PRs.
 """
 from __future__ import annotations
 
+import math
 import os
 from pathlib import Path
+import re
+import sqlite3
+from uuid import UUID
 from typing import Any
 
 from modules.jobs.inputs import AUDIO_EXTENSIONS, InputSource, InputValidationError
@@ -17,6 +21,31 @@ from modules.jobs.worker import JobWorker
 
 _ERROR_TYPES = (InputValidationError, JobIntakeError, JobStorageError)
 _SUPPORTED_FILE_TYPES = [".mp3", ".wav", ".m4a", ".ogg"]
+# Only an opaque job UUID is stored in browser localStorage, never audio, paths
+# or transcripts. Stable keys let BrowserState survive localhost restarts.
+_BROWSER_STORAGE_KEY = "irikin-whisperx.simple.last-job.v1"
+_BROWSER_STORAGE_SECRET = "irikin-whisperx.local-uuid-only.v1"
+_STAGE_LABELS = {
+    "QUEUED": "В очереди",
+    "PREPARING": "Подготовка",
+    "VAD": "Выделение речи",
+    "ASR": "Распознавание",
+    "ALIGN": "Выравнивание таймкодов",
+    "DIARIZE": "Определение спикеров",
+    "EXPORT": "Сохранение результата",
+    "DONE": "Готово",
+    "FAILED": "Ошибка",
+    "INTERRUPTED": "Прервано",
+    "CANCELLED": "Отменено",
+}
+_STATUS_LABELS = {
+    "QUEUED": "Задание ожидает обработки.",
+    "IN_PROGRESS": "Обработка выполняется на этом компьютере.",
+    "COMPLETED": "Готово. Результат сохранён на ПК.",
+    "FAILED": "Ошибка обработки. Исходный файл сохранён.",
+    "INTERRUPTED": "Обработка прервана при остановке сервера. Исходный файл сохранён.",
+    "CANCELLED": "Задание отменено.",
+}
 
 
 def upload_directory() -> Path:
@@ -79,6 +108,59 @@ class SimpleModeController:
         self.worker.wake()
         return ticket.identifier, "В очереди (QUEUED). Файл сохранён на этом компьютере."
 
+    def poll(self, identifier: str) -> tuple[str, str, str, int]:
+        """Read fresh SQLite state by canonical UUID; no inference or file serving.
+
+        Progress represents persisted milestones, not elapsed time or ETA.
+        Never echo arbitrary browser input, paths, model text or exception text.
+        """
+        if not identifier:
+            return "", "Выберите аудиофайл для обработки.", "—", 0
+        if not isinstance(identifier, str):
+            return "", "Некорректный идентификатор задания.", "—", 0
+        try:
+            if str(UUID(identifier)) != identifier:
+                raise ValueError("Noncanonical identifier")
+        except (ValueError, TypeError, AttributeError):
+            return "", "Некорректный идентификатор задания.", "—", 0
+        try:
+            ticket = self.jobs.get_status(identifier)
+        except (sqlite3.Error, OSError, JobIntakeError, JobStorageError):
+            return identifier, "Статус временно недоступен. Повторим запрос.", "—", 0
+        if ticket is None:
+            return "", "Задание не найдено в локальной базе.", "—", 0
+
+        stage = _STAGE_LABELS.get(ticket.stage, "Неизвестный этап")
+        status = _STATUS_LABELS.get(ticket.status, "Состояние неизвестно.")
+        if ticket.status == "IN_PROGRESS" and ticket.error_code == "CANCEL_REQUESTED":
+            status = "Отмена запрошена. Ожидается безопасная точка остановки."
+        elif ticket.status == "FAILED" and isinstance(ticket.error_code, str):
+            # Only stable internal codes, never arbitrary exception strings.
+            if re.fullmatch(r"[A-Z][A-Z0-9_]{1,63}", ticket.error_code):
+                status += f" Код: {ticket.error_code}."
+        try:
+            value = float(ticket.progress)
+            milestone = round(max(0.0, min(1.0, value)) * 100) if math.isfinite(value) else 0
+        except (TypeError, ValueError):
+            milestone = 0
+        if ticket.status == "COMPLETED":
+            milestone = 100
+        return ticket.identifier, status, stage, milestone
+
+    def submit_and_store(
+        self, upload: Any, previous_identifier: str,
+    ) -> tuple[str, str, str, int, str]:
+        """Queue exactly once and store its UUID in browser-local state.
+
+        A rejected new upload must not erase the previous accepted job.
+        """
+        identifier, message = self.submit(upload)
+        if identifier:
+            return identifier, message, _STAGE_LABELS["QUEUED"], 0, identifier
+        previous = self.poll(previous_identifier)
+        retained = previous[0]
+        return retained, message, previous[2], previous[3], retained
+
 
 def create_runtime(*, job_root: str | Path = DEFAULT_JOB_ROOT) -> tuple[SimpleModeController, JobWorker]:
     """Share exactly one durable service and one single-owner worker."""
@@ -113,19 +195,51 @@ def build_blocks(controller: SimpleModeController, *, gradio: Any = None) -> Any
                     type="filepath",
                     file_count="single",
                 )
+                # Same localhost origin + stable key/secret lets UUID survive
+                # refresh, tab close and server restart. Not an auth token.
+                browser_job = gradio.BrowserState(
+                    "", storage_key=_BROWSER_STORAGE_KEY,
+                    secret=_BROWSER_STORAGE_SECRET,
+                )
                 submit = gradio.Button("Начать обработку", variant="primary")
                 status = gradio.Textbox(label="Состояние", interactive=False)
                 identifier = gradio.Textbox(label="ID задания", interactive=False)
-                submit.click(
-                    fn=controller.submit,
-                    inputs=[uploaded],
-                    outputs=[identifier, status],
-                    api_name=False,
+                stage = gradio.Textbox(label="Этап обработки", interactive=False)
+                progress = gradio.Slider(
+                    minimum=0, maximum=100, step=1, value=0,
+                    label="Контрольные точки конвейера (%)",
+                    interactive=False,
                 )
                 gradio.Markdown(
-                    "Обработка продолжается после закрытия вкладки, пока работает "
-                    "сервер. Восстановление статуса и скачивание TXT появятся "
-                    "в следующих обновлениях интерфейса."
+                    "Шкала отображает пройденные этапы, **не точное время или "
+                    "процент оставшейся вычислительной работы**. "
+                    "На ASR она может долго не изменяться."
+                )
+                submit.click(
+                    fn=controller.submit_and_store,
+                    inputs=[uploaded, browser_job],
+                    outputs=[identifier, status, stage, progress, browser_job],
+                    api_name=False,
+                )
+                # Load and tick obtain *fresh* snapshots via SQLite. The timer
+                # belongs to the browser view, never to the background worker.
+                blocks.load(
+                    fn=controller.poll,
+                    inputs=[browser_job],
+                    outputs=[identifier, status, stage, progress],
+                    queue=False, show_progress="hidden", api_name=False,
+                )
+                refresh = gradio.Timer(value=2.0, active=True)
+                refresh.tick(
+                    fn=controller.poll,
+                    inputs=[browser_job],
+                    outputs=[identifier, status, stage, progress],
+                    queue=False, show_progress="hidden", api_name=False,
+                )
+                gradio.Markdown(
+                    "Статус восстанавливается по ID после обновления или "
+                    "повторного открытия вкладки. Обработка продолжится, "
+                    "пока работает локальный сервер. Скачивание TXT — P23."
                 )
             with gradio.Tab("Advanced"):
                 gradio.Markdown(
