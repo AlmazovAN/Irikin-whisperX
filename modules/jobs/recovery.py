@@ -98,7 +98,7 @@ def _recover_jobs_under_lock(jobs: JobService) -> RecoveryReport:
         with conn:
             conn.execute("BEGIN IMMEDIATE")
             rows = conn.execute("""
-                SELECT uuid, status, attempt
+                SELECT uuid, status, attempt, error_code
                 FROM tasks WHERE task_type='TRANSCRIPTION' ORDER BY id
             """).fetchall()
             known = {row["uuid"] for row in rows}
@@ -112,6 +112,21 @@ def _recover_jobs_under_lock(jobs: JobService) -> RecoveryReport:
                 if status != "IN_PROGRESS":
                     continue
                 identifier, attempt = row["uuid"], row["attempt"]
+                if row["error_code"] == "CANCEL_REQUESTED":
+                    # The cancel intent is committed before this worker died.
+                    # Never resurrect an unwanted artifact as COMPLETED.
+                    at = _now()
+                    changed = conn.execute("""
+                        UPDATE tasks SET status='CANCELLED', stage='CANCELLED',
+                            error_code=NULL, error=NULL,
+                            output_json_path=NULL, output_txt_path=NULL,
+                            finished_at=?, updated_at=?
+                        WHERE uuid=? AND status='IN_PROGRESS' AND attempt=?
+                          AND error_code='CANCEL_REQUESTED'
+                    """, (at, at, identifier, attempt))
+                    if changed.rowcount != 1:
+                        raise RecoveryError("RECOVERY_CONFLICT", "Job changed during recovery")
+                    continue
                 verified = None
                 damaged = False
                 if _valid_uuid(identifier) and type(attempt) is int and attempt >= 1:
