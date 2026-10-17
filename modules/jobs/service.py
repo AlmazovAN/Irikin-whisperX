@@ -234,19 +234,34 @@ class JobService:
         )
 
     def cancel(self, identifier: str) -> bool:
-        """P15: cancel only an unclaimed queued job; never kill active inference.
+        """Persist a cooperative cancel request; never abort inference by force.
 
-        P19 adds cooperative cancellation of an already running transcription.
+        QUEUED becomes CANCELLED immediately. IN_PROGRESS stays active with
+        error_code=CANCEL_REQUESTED until the worker reaches a checkpoint.
+        The status/attempt is protected by a SQLite transaction, not a
+        browser-session or in-memory flag. A completed job cannot be cancelled.
         """
         if self.get(identifier) is None:
             return False
         at = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(sep=" ")
         with closing(self._connect()) as conn:
             with conn:
+                conn.execute("BEGIN IMMEDIATE")
                 cursor = conn.execute("""
-                    UPDATE tasks SET status='CANCELLED', stage='CANCELLED',
-                        finished_at=?, updated_at=?
-                    WHERE uuid=? AND status='QUEUED'
+                    UPDATE tasks SET
+                        status=CASE WHEN status='QUEUED'
+                            THEN 'CANCELLED' ELSE status END,
+                        stage=CASE WHEN status='QUEUED'
+                            THEN 'CANCELLED' ELSE stage END,
+                        error_code=CASE WHEN status='IN_PROGRESS'
+                            THEN 'CANCEL_REQUESTED' ELSE NULL END,
+                        finished_at=CASE WHEN status='QUEUED'
+                            THEN ? ELSE finished_at END,
+                        updated_at=?
+                    WHERE uuid=? AND task_type='TRANSCRIPTION'
+                      AND status IN ('QUEUED','IN_PROGRESS')
+                      AND (status='QUEUED' OR error_code IS NULL
+                           OR error_code='CANCEL_REQUESTED')
                 """, (at, at, identifier))
                 return cursor.rowcount == 1
 
