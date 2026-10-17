@@ -335,3 +335,28 @@ Windows/PyTorch/WhisperX, как договорились, переноситс�
 - GitHub CI/MERGED фиксировать по фактическому результату PR,
   не считать текст подтверждением проверки.
 - Следующая позиция: P24 (вероятно GitHub PR #25) — мини-история заданий.
+
+
+### P24 / GitHub PR #25 — история, предпросмотр и удаление выбранного задания
+
+- Основание: P23 / PR #24 MERGED, base master `986ad007cc8974e05e9cfc73bda859aafa364e83`.
+- UI: последние 30 jobs из `JobService.list_jobs()`, дата/имя/status/модель,
+  ручное обновление и повторное открытие после рестарта. Выбор меняет
+  `BrowserState` текущего UUID, но не ставит задачу в очередь ASR.
+- Предпросмотр первых 12 КиБ только после `get_artifact(txt)` с SHA-256.
+  Можно открыть каталог результата в Windows Explorer по серверному
+  проверенному Path; произвольный browser path не принимается.
+- Удаление только выбранного terminal job (COMPLETED/FAILED/CANCELLED/
+  INTERRUPTED) с отдельной checkbox и кнопкой; активные и queued не удаляются.
+  SQLite `BEGIN IMMEDIATE` → переименование UUID-папки в карантин →
+  удаление строки/COMMIT → cleanup. Ошибка SQLite откатывает и возвращает
+  папку. При сбое cleanup остаётся `.deleting-UUID` и диагностический код.
+  Отказ питания между FS rename и DB COMMIT требует ручной recovery.
+- История не удаляется сама по времени; в cache Gradio/загрузках браузера
+  могут оставаться сторонние копии TXT после удаления job.
+- Тесты: `tests/unit/test_job_history_cleanup.py` (SQLite/FS, mock ASR,
+  отказ при active/queued, rollback, symlink, corrupted TXT, reload);
+  обновлены fake Gradio тесты. Документ `docs/pr25-history-cleanup.md`.
+- Настоящий Windows 11/Gradio5/модель Small/диаризация, браузерные события:
+  **NOT_RUN**. CI/MERGED подтвердить по GitHub, не по этому тексту.
+- Далее: P25 / GitHub PR #26 — реальная Windows приёмка и MVP gate.
