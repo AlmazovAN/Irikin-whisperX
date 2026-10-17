@@ -222,7 +222,7 @@ class SimpleModeController:
         tickets = self.jobs.list_jobs(limit=_HISTORY_LIMIT)
         choices: list[tuple[str, str]] = []
         for ticket in tickets:
-            safe_name = re.sub(r"[\\x00-\\x1f\\x7f]", " ", ticket.file_name)[:90]
+            safe_name = re.sub(r"[\x00-\x1f\x7f]", " ", ticket.file_name)[:90]
             label = (
                 f"{ticket.created_at[:16]} · {safe_name} · "
                 f"{ticket.status} · {ticket.model_name}"
@@ -243,7 +243,7 @@ class SimpleModeController:
             return "Предпросмотр временно недоступен."
         more = len(content) > _PREVIEW_BYTES
         text = content[:_PREVIEW_BYTES].decode("utf-8", errors="replace")
-        return text + ("\\n… Показано начало TXT. Скачайте файл целиком." if more else "")
+        return text + ("\n… Показано начало TXT. Скачайте файл целиком." if more else "")
 
     def poll_with_preview(
         self, identifier: str,
@@ -430,7 +430,7 @@ def build_blocks(controller: SimpleModeController, *, gradio: Any = None) -> Any
                     "повторного открытия вкладки."
                 )
                 gradio.Markdown(
-                    "### История последних заданий\\n"
+                    "### История последних заданий\n"
                     "Список хранится в локальной SQLite. Выбор не запускает "
                     "повторную обработку."
                 )
