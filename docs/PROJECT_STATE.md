@@ -360,3 +360,32 @@ Windows/PyTorch/WhisperX, как договорились, переноситс�
 - Настоящий Windows 11/Gradio5/модель Small/диаризация, браузерные события:
   **NOT_RUN**. CI/MERGED подтвердить по GitHub, не по этому тексту.
 - Далее: P25 / GitHub PR #26 — реальная Windows приёмка и MVP gate.
+
+### P25 / GitHub PR #26 — инструменты реальной Windows-приёмки и релизный gate
+
+- База `master` после MERGED P24/PR #25: `c578bd78778a565559385880c5ac05ce2776520f`.
+- `scripts/qa_mvp.py --preflight` — без моделей, только диагностика ОС,
+  Python, FFmpeg/FFprobe, библиотек, HF_TOKEN и CPU/GPU. Признак
+  `preflight_only` ни при каких обстоятельствах не равен passed.
+- `--run --short … --long … --two-speakers …` запускает РЕАЛЬНЫЙ
+  `JobService` + единственный `JobWorker` + `TranscriptionService`:
+  3 разных записи + 10 последовательных повторов короткой; проверка
+  статусов, 13 отдельных UUID, атомарных TXT/JSON/manifest, точных
+  метаданных Small/ru, word alignment и не менее двух меток speaker
+  на двухголосном аудио. Отчёт без речи/путей/токена, private jobs в `data/`.
+- `scripts/mvp_release_gate.py` требует успешного Windows-отчёта
+  реальной очереди плюс 16 ручных браузерных тестов с `PASS` и
+  комментариями; при отсутствии доказательств результат `BLOCKED`.
+  Вывод `READY_FOR_HUMAN_RELEASE_REVIEW` — только приглашение к
+  проверке человеком, не доказательство аутентичности отчётов.
+- `tests/unit/test_mvp_qa_gate.py` выполняет автономную проверку логики
+  с настоящими SQLite/job folders и имитацией ASR. Это не Windows,
+  не WhisperX и не реальный Gradio.
+- `docs/qa-mvp.md`, README описывают воспроизводимый порядок
+  и ограничения целевого Windows 11/AMD Ryzen 5 5500U/8GB (CPU/int8).
+- **Фактический Windows/браузер/Pyannote/E2E: NOT_RUN.**
+  До получения отчётов, анализа проблем и реальных воспроизводимых
+  аппаратных испытаний **не ставить `v0.1.0-mvp`**.
+- Состояние: P25 кодовый пакет может быть MERGED после CI,
+  но **RELEASE GATE = BLOCKED**. Дальнейшие этапы Drive нельзя
+  считать готовыми к аппаратной приёмке только по этому PR.
