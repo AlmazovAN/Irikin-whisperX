@@ -91,7 +91,7 @@ def test_missing_start_does_not_make_a_fake_timestamp_or_publish_result(tmp_path
     with pytest.raises(ResultFormatError) as error:
         publish_result_set(result, job_folder, attempt=1)
     assert error.value.code == "INVALID_TIMESTAMP"
-    assert not (job_folder / "result").exists()
+    assert not list((job_folder / "result").iterdir())
 
 
 def test_one_shot_export_and_durable_bundle_share_exact_formatter(meeting, tmp_path):
