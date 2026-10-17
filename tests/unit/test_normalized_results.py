@@ -175,8 +175,8 @@ def test_json_is_valid_utf8_non_escaped_russian_and_roundtrips(result):
 def test_txt_is_readable_with_original_timestamps_and_speakers(result):
     txt = render_txt(build_result_payload(result))
     assert txt == (
-        "[00:00:00.000 --> 00:00:01.250] SPEAKER_00: Добрый день\n"
-        "[00:00:04.000 --> 00:00:05.500] SPEAKER_01: Здравствуйте\n"
+        "[00:00:00] [SPEAKER_00]: Добрый день\n"
+        "[00:00:04] [SPEAKER_01]: Здравствуйте\n"
     )
     assert "SPEAKER_00|" not in txt
 
@@ -185,7 +185,7 @@ def test_txt_without_speaker_and_long_timestamps():
     data = {"segments": [{"start": 3600.05, "end": 3603.3,
                           "text": "Длинная запись\n  с переносом", "speaker": None}]}
     assert render_txt(data) == (
-        "[01:00:00.050 --> 01:00:03.300] Длинная запись с переносом\n"
+        "[01:00:00] Длинная запись с переносом\n"
     )
 
 
@@ -245,7 +245,7 @@ def test_export_writes_two_files_to_existing_directory(result, tmp_path):
     assert files.json_path.name == "job_a123.json"
     assert files.txt_path.name == "job_a123.txt"
     assert json.loads(files.json_path.read_text(encoding="utf-8"))["language"] == "ru"
-    assert "SPEAKER_01: Здравствуйте" in files.txt_path.read_text(encoding="utf-8")
+    assert "[SPEAKER_01]: Здравствуйте" in files.txt_path.read_text(encoding="utf-8")
     with pytest.raises(FileExistsError):
         write_result_files(result, tmp_path, stem="job_a123")
     assert len(list(tmp_path.iterdir())) == 2

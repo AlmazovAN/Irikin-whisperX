@@ -188,23 +188,30 @@ def render_json(payload: Mapping[str, Any]) -> str:
 
 
 def _timestamp(seconds: float) -> str:
-    milliseconds = round(seconds * 1000)
-    hours, remainder = divmod(milliseconds, 3_600_000)
-    minutes, remainder = divmod(remainder, 60_000)
-    sec, millis = divmod(remainder, 1000)
-    return f"{hours:02d}:{minutes:02d}:{sec:02d}.{millis:03d}"
+    """Floor segment START to whole seconds; never move an utterance forward.
+
+    Precise start/end (including milliseconds) remain in transcript.json.
+    """
+    total_seconds = int(math.floor(seconds))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, sec = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{sec:02d}"
 
 
 def render_txt(payload: Mapping[str, Any]) -> str:
-    """One readable timestamped utterance per line, with speaker if known."""
-    result = []
+    """MVP transcript: [HH:MM:SS] [SPEAKER_00]: speech.
+
+    The separate speaker field is authoritative; unknown speakers receive no
+    invented identifier. This writer is independent of legacy subtitle TXT.
+    """
+    lines: list[str] = []
     for item in payload["segments"]:
-        tag = f'{item["speaker"]}: ' if item.get("speaker") else ""
-        text = " ".join(item["text"].split())  # Multiline speech stays on one TXT line.
-        result.append(
-            f'[{_timestamp(item["start"])} --> {_timestamp(item["end"])}] {tag}{text}'
-        )
-    return "\n".join(result) + ("\n" if result else "")
+        start = _time(item.get("start"))
+        speaker = _speaker(item.get("speaker"))
+        tag = f"[{speaker}]: " if speaker is not None else ""
+        text = " ".join(item["text"].split())  # Keep each segment on one line.
+        lines.append(f"[{_timestamp(start)}] {tag}{text}")
+    return "\n".join(lines) + ("\n" if lines else "")
 
 
 def write_result_files(
