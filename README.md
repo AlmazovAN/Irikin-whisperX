@@ -6,30 +6,30 @@
 This fork's Windows Simple Mode is designed for **local** Russian transcription:
 select an audio file in the browser, start one background Whisper Small job,
 follow the persisted VAD/ASR/alignment/diarization status, then download TXT.
-The authoritative TXT/JSON pair and input are saved under ignored \`data/jobs/\`.
+The authoritative TXT/JSON pair and input are saved under ignored `data/jobs/`.
 
 **Code merged does not equal hardware acceptance.** The required real Windows
 11 CPU/Pyannote/Gradio/browser tests have not been performed in GitHub CI.
 On a Ryzen 5 5500U with 8 GB RAM, CPU/int8 is the intended candidate,
-not a proven real-time or memory-safe configuration. The \`v0.1.0-mvp\` release
+not a proven real-time or memory-safe configuration. The `v0.1.0-mvp` release
 tag remains **BLOCKED** until the Windows evidence is reviewed.
 
 With a locally installed environment, run the read-only preflight:
 
-\`\`\`bat
+```bat
 venv\Scripts\python.exe scripts\qa_mvp.py --preflight
-\`\`\`
+```
 
-For explicit private-audio end-to-end testing (stop \`Start.bat\` first):
+For explicit private-audio end-to-end testing (stop `Start.bat` first):
 
-\`\`\`bat
+```bat
 venv\Scripts\python.exe scripts\qa_mvp.py --run --short "C:\QA\short.wav" --long "C:\QA\long.wav" --two-speakers "C:\QA\two.wav"
-\`\`\`
+```
 
 The run performs 13 persisted jobs: short, long, two-speaker, plus 10 sequential
 short repeats; the script verifies completed JSON/TXT/SHA256 and writes
-non-transcript diagnostics to the ignored \`logs/\` folder. Local audio and
-job results are intentionally retained under \`data/qa_mvp_runs/\` until the
+non-transcript diagnostics to the ignored `logs/` folder. Local audio and
+job results are intentionally retained under `data/qa_mvp_runs/` until the
 owner removes them.
 
 For the required **manual browser** checklist and conservative release gate,
