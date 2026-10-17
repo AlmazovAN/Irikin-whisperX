@@ -266,3 +266,23 @@ Windows/PyTorch/WhisperX, как договорились, переноситс�
 - Docs: docs/pr21-simple-mode.md. Fast fake Gradio tests only;
   фактические Gradio/Windows ASR/UI E2E ещё NOT_RUN.
 - Статус CI/MERGED проверять в GitHub после завершения CI.
+
+
+### P21 / GitHub PR #22 — SQLite polling и BrowserState reconnect
+
+- База `master`: `7751b3ee71d7915ad8441e96656314ae5c40cd28` (после P20/PR #21, MERGED).
+- Simple Mode использует `JobService.get_status(uuid)` через `Blocks.load`
+  и `gr.Timer.tick` каждые 2 секунды, `queue=False`.
+- Текущий UUID сохраняется в `gr.BrowserState`; тот же браузер/host:port
+  после перезагрузки показывает задание без повторного запуска модели.
+- Видны статус, стадия и условный прогресс по реальным контрольным точкам;
+  100% только для COMPLETED. Не показывать ETA или фиктивную скорость.
+- Ошибочные UUID, SQL-сообщения и приватные пути не отображаются.
+  Отказ нового upload не стирает принятый ранее UUID.
+- Добавлены offline регрессии SQLite/reconnect и расширены fake-Gradio тесты.
+- Файлы: `modules/ui/simple_mode.py`, `tests/unit/test_simple_mode_ui.py`,
+  `tests/unit/test_simple_status_reconnect.py`, `docs/pr22-status-reconnect.md`.
+- Реальный Windows 11 + браузер + CPU + WhisperX/Pyannote: **NOT_RUN**.
+  До подтверждения GitHub PR и CI не отмечать как MERGED/ACCEPTED.
+- Следующая позиция: P22 — TXT с таймкодами и спикерами, проверка
+  существующих writer/экспорта без повторного распознавания.
