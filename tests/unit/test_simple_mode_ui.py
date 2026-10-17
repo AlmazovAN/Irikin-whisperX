@@ -352,7 +352,9 @@ def test_simple_blocks_have_drag_drop_one_launch_button_and_separate_advanced(en
     assert saved == uid and stage_text == "В очереди" and milestone == 0
     assert file is None and preview == ""
     assert gr.loads[0]["fn"](saved)[0] == uid
-    history_choice = gr.loads[1]["fn"](saved)
+    history_choice, confirmation_reset = gr.loads[1]["fn"](saved)
+    assert confirmation_reset is False
+    assert gr.loads[1]["outputs"][-1].name == "Checkbox"
     assert history_choice["value"] == uid
     assert any(u == uid for _, u in history_choice["choices"])
     assert gr.ticks[0]["fn"](saved)[0] == uid
