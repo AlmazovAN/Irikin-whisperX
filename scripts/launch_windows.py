@@ -45,6 +45,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="Do not open browser after server is ready")
     parser.add_argument("--startup-timeout", type=int, default=180,
                         help="Wait for first local HTTP response, in seconds (15–900)")
+    parser.add_argument("--ui-mode", "--ui_mode", choices=("simple", "advanced"),
+                        default="simple",
+                        help="Default Simple job queue, or legacy Advanced interface")
     parser.add_argument("--whisper_type", choices=("whisper", "faster-whisper", "insanely-fast-whisper", "whisperx"),
                         help="Legacy inference engine override")
     parser.add_argument("--theme", help="Legacy Gradio theme name")
@@ -74,7 +77,8 @@ def port_is_occupied(port: int) -> bool:
 def build_app_command(python: Path, args: argparse.Namespace) -> list[str]:
     command = [str(python), "-u", str(APP), "--server_name", HOST,
                "--server_port", str(args.port), "--share", "false",
-               "--api_open", "false", "--inbrowser", "false"]
+               "--api_open", "false", "--inbrowser", "false",
+               "--ui_mode", args.ui_mode]
     if args.whisper_type:
         command.extend(("--whisper_type", args.whisper_type))
     if args.theme:
