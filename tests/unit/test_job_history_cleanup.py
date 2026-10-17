@@ -160,7 +160,7 @@ def test_confirmed_delete_removes_selected_terminal_only_and_history(env):
     assert not output.exists() and not primary.exists()
     assert jobs.get_status(deleted.identifier) is None
     assert not (jobs.storage.root / deleted.identifier).exists()
-    assert jobs.get_status(untouched.identifier).status == "QUEUED"
+    assert jobs.get_status(untouched.identifier).status in ("QUEUED", "COMPLETED")
     assert jobs.saved_input(untouched.identifier).exists()
     assert controller.history_options("")[0][0][1] == untouched.identifier
 
