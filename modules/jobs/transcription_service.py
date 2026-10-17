@@ -149,12 +149,21 @@ class TranscriptionService:
         diarization_enabled: bool = MVP_PRESET.diarization_enabled,
         progress_callback: Callable[[float], None] | None = None,
         stage_callback: Callable[[str], None] | None = None,
+        cancel_event: object | None = None,
     ) -> TranscriptionResult:
         """Call BaseTranscriptionPipeline.run without a Gradio request/session.
 
         All model settings come from P07; no configuration YAML is persisted.
         Diarization disabled is a diagnostic-only, NOT accepted MVP, result.
         """
+        if cancel_event is not None and not callable(getattr(cancel_event, "is_set", None)):
+            raise TypeError("cancel_event must provide is_set()")
+
+        def check_cancel() -> None:
+            if cancel_event is not None and cancel_event.is_set():
+                raise TranscriptionServiceError("CANCELLED", "Transcription was cancelled")
+
+        check_cancel()
         source_path = _verify_source(source)
         params = build_mvp_pipeline_params(
             device=device, compute_type=compute_type,
@@ -164,6 +173,7 @@ class TranscriptionService:
             raise TypeError("progress_callback must be callable")
         if stage_callback is not None and not callable(stage_callback):
             raise TypeError("stage_callback must be callable")
+        check_cancel()
         if diarization_enabled:
             try:
                 require_hf_token(os.environ.get("HF_TOKEN"))
@@ -172,24 +182,60 @@ class TranscriptionService:
         if not self._lock.acquire(blocking=False):
             raise TranscriptionServiceError("BUSY", "Another transcription is already running")
         pipeline = None
+        previous_event = None
+        event_installed = False
         try:
+            check_cancel()
             try:
                 if self._pipeline is None:
                     self._pipeline = self._factory()
                 pipeline = self._pipeline
                 pipeline.device = device
+                setter = getattr(pipeline, "set_cancel_event", None)
+                if cancel_event is not None and callable(setter):
+                    previous_event = getattr(pipeline, "cancel_event", None)
+                    setter(cancel_event)
+                    event_installed = True
+
+                def checked_stage(stage: str) -> None:
+                    check_cancel()
+                    if stage_callback is not None:
+                        stage_callback(stage)
+
+                def checked_progress(fraction: float) -> None:
+                    check_cancel()
+                    if progress_callback is not None:
+                        progress_callback(fraction)
+
                 raw, elapsed = pipeline.run(
-                    str(source_path), HeadlessProgress(stage_callback), MVP_PRESET.output_format,
-                    False, progress_callback, *params.to_list(),
+                    str(source_path), HeadlessProgress(checked_stage), MVP_PRESET.output_format,
+                    False, checked_progress, *params.to_list(),
                     persist_settings=False, strict_vad=True,
                 )
+                check_cancel()
             except ModelStageError as exc:
-                # No HF tokens, third-party exception repr or system paths.
+                self._pipeline = None  # Do not reuse a potentially dirty instance.
+                check_cancel()
+                # Keep only known, safe pipeline diagnostic codes.
                 raise TranscriptionServiceError(exc.code, str(exc)) from None
-            except Exception:
+            except Exception as exc:
+                self._pipeline = None  # Always offload in finally before reuse.
+                check_cancel()
+                if isinstance(exc, TranscriptionServiceError):
+                    raise
+                # Existing WhisperXWrapper handles recoverable CUDA OOM itself.
+                # An exhausted fallback is not a successful transcription.
+                description = str(exc).lower()
+                code = "OUT_OF_MEMORY" if (
+                    isinstance(exc, MemoryError)
+                    or "out of memory" in description
+                    or "cudnn_status_alloc_failed" in description
+                    or "defaultcpuallocator" in description
+                ) else "PIPELINE_FAILED"
                 raise TranscriptionServiceError(
-                    "PIPELINE_FAILED", "WhisperX inference failed; inspect local diagnostics"
+                    code, "WhisperX inference failed; review local diagnostics"
                 ) from None
+            check_cancel()
             segments = _verify_segments(raw, require_speakers=diarization_enabled)
             try:
                 elapsed_number = float(elapsed)
@@ -204,6 +250,12 @@ class TranscriptionService:
                 diarization_requested=diarization_enabled,
             )
         finally:
+            try:
+                if event_installed and pipeline is not None:
+                    pipeline.set_cancel_event(previous_event)
+            except Exception:
+                self._pipeline = None
+                logger.warning("WhisperX cancel signal cleanup failed; discarding owner")
             try:
                 if pipeline is not None:
                     pipeline.offload()

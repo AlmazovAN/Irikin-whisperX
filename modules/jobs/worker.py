@@ -106,6 +106,32 @@ class _Claimed:
     attempt: int
 
 
+class _JobCancelSignal:
+    """Event-compatible, SQLite-backed cancellation checkpoint.
+
+    No watcher thread and no dependency on a browser. Every is_set reads
+    the current persisted status for this exact attempt. If a job was
+    replaced or interrupted, prevent stale inference from proceeding.
+    """
+
+    def __init__(self, jobs: JobService, claim: _Claimed):
+        self._jobs = jobs
+        self._claim = claim
+
+    def is_set(self) -> bool:
+        with closing(self._jobs._connect()) as conn:
+            row = conn.execute("""
+                SELECT status, attempt, error_code FROM tasks
+                WHERE uuid=? AND task_type='TRANSCRIPTION'
+            """, (self._claim.identifier,)).fetchone()
+        return (
+            row is None
+            or row["status"] != "IN_PROGRESS"
+            or row["attempt"] != self._claim.attempt
+            or row["error_code"] == "CANCEL_REQUESTED"
+        )
+
+
 class JobWorker:
     """Sequential worker. Model instance is created lazily inside its thread.
 
@@ -230,12 +256,21 @@ class JobWorker:
         self, claim: _Claimed, *, success: bool, error_code: str | None = None,
         txt: str | None = None, json_file: str | None = None,
     ) -> None:
-        final = "COMPLETED" if success else "FAILED"
-        phase = "DONE" if success else "FAILED"
-        message = None if success else "Audio processing failed; see error_code"
         with closing(self.jobs._connect()) as conn:
             with conn:
                 conn.execute("BEGIN IMMEDIATE")
+                row = conn.execute("""
+                    SELECT error_code FROM tasks
+                    WHERE uuid=? AND status='IN_PROGRESS' AND attempt=?
+                """, (claim.identifier, claim.attempt)).fetchone()
+                if row is None:
+                    raise WorkerError("JOB_STATE_CONFLICT", "Job status changed unexpectedly")
+                cancelling = error_code == "CANCELLED" or row["error_code"] == "CANCEL_REQUESTED"
+                final = "CANCELLED" if cancelling else ("COMPLETED" if success else "FAILED")
+                phase = "DONE" if final == "COMPLETED" else final
+                code = None if cancelling or success else error_code
+                message = "Audio processing failed; see error_code" if final == "FAILED" else None
+                stamp = _now()
                 updated = conn.execute("""
                     UPDATE tasks SET status=?, stage=?, error_code=?, error=?,
                         output_txt_path=?, output_json_path=?,
@@ -243,9 +278,10 @@ class JobWorker:
                         finished_at=?, updated_at=?
                     WHERE uuid=? AND status='IN_PROGRESS' AND attempt=?
                 """, (
-                    final, phase, error_code, message, txt, json_file,
-                    final, _now(), _now(),
-                    claim.identifier, claim.attempt,
+                    final, phase, code, message,
+                    txt if final == "COMPLETED" else None,
+                    json_file if final == "COMPLETED" else None,
+                    final, stamp, stamp, claim.identifier, claim.attempt,
                 ))
                 if updated.rowcount != 1:
                     raise WorkerError("JOB_STATE_CONFLICT", "Job status changed unexpectedly")
@@ -279,7 +315,7 @@ class JobWorker:
                 """, (stage, value, at, claim.identifier, claim.attempt))
                 return updated.rowcount == 1
 
-    def _callbacks_for(self, transcriber: object, claim: _Claimed) -> dict:
+    def _callbacks_for(self, transcriber: object, claim: _Claimed, signal: _JobCancelSignal) -> dict:
         """Use real service events; retain older fake/custom adapters unchanged."""
         try:
             params = inspect.signature(transcriber.transcribe).parameters
@@ -288,19 +324,30 @@ class JobWorker:
         supports_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
         kwargs: dict = {}
         if "stage_callback" in params or supports_kw:
-            kwargs["stage_callback"] = lambda stage: self._record_stage(claim, stage)
+            def on_stage(stage: str) -> None:
+                if signal.is_set():
+                    raise WorkerError("CANCELLED", "Job cancelled")
+                self._record_stage(claim, stage)
+            kwargs["stage_callback"] = on_stage
         if "progress_callback" in params or supports_kw:
             def on_asr(value: float) -> None:
+                if signal.is_set():
+                    raise WorkerError("CANCELLED", "Job cancelled")
                 try:
                     self._record_stage(claim, "ASR", asr_fraction=value)
                 except ValueError:
                     # An invalid model progress fraction is not an ASR failure.
                     return
             kwargs["progress_callback"] = on_asr
+        if "cancel_event" in params or supports_kw:
+            kwargs["cancel_event"] = signal
         return kwargs
 
     def _process(self, claim: _Claimed, transcriber: object) -> None:
+        signal = _JobCancelSignal(self.jobs, claim)
         try:
+            if signal.is_set():
+                raise WorkerError("CANCELLED", "Job cancelled")
             path = self.jobs.saved_input(claim.identifier)
             # Fresh validation of the stored copy: never trust a vanished cache.
             source = validate_input(
@@ -314,12 +361,18 @@ class JobWorker:
                 raise WorkerError("JOB_NOT_FOUND", "Accepted job was not found")
             from dataclasses import replace
             source = replace(source, safe_filename=ticket.file_name)
-            result = transcriber.transcribe(source, **self._callbacks_for(transcriber, claim))
+            result = transcriber.transcribe(
+                source, **self._callbacks_for(transcriber, claim, signal)
+            )
+            if signal.is_set():
+                raise WorkerError("CANCELLED", "Job cancelled")
             self._record_stage(claim, "EXPORT")
             job_dir = self.jobs.storage.root / claim.identifier
             # Atomically reveal JSON, TXT and their checksum manifest together.
             # No COMPLETED transition until the full bundle has been verified.
             published = publish_result_set(result, job_dir, attempt=claim.attempt)
+            # Cancellation can arrive during non-interruptible file fsync/rename.
+            # _finish does the final atomic check before any COMPLETED commit.
             self._finish(
                 claim, success=True,
                 json_file=published.files.json_path.relative_to(self.jobs.storage.root).as_posix(),

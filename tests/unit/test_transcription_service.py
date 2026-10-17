@@ -323,3 +323,81 @@ def test_noncallable_stage_callback_is_rejected(valid_source):
     service = TranscriptionService(pipeline_factory=FakePipeline)
     with pytest.raises(TypeError, match="stage_callback"):
         service.transcribe(valid_source, stage_callback=123)
+
+
+def test_cooperative_cancel_signal_reaches_existing_pipeline_and_resets(valid_source):
+    from threading import Event
+    cancelling = Event()
+
+    class CooperativeFake(FakePipeline):
+        def __init__(self):
+            super().__init__()
+            self.cancel_event = Event()
+            self.original = self.cancel_event
+
+        def set_cancel_event(self, event):
+            self.cancel_event = event
+
+        def run(self, path, progress, file_format, add_timestamp, callback,
+                *params, persist_settings=True, strict_vad=False):
+            progress(0.0, desc="Filtering silent parts from audio..")
+            progress(0.0, desc="Transcribing with WhisperX..")
+            cancelling.set()
+            if self.cancel_event.is_set():
+                raise RuntimeError("legacy Gradio cancellation: private recording")
+            raise AssertionError("Expected cancellation checkpoint")
+
+    pipeline = CooperativeFake()
+    service = TranscriptionService(pipeline_factory=lambda: pipeline)
+    with pytest.raises(TranscriptionServiceError) as exc:
+        service.transcribe(valid_source, cancel_event=cancelling)
+    assert exc.value.code == "CANCELLED"
+    assert "private recording" not in str(exc.value)
+    assert pipeline.cancel_event is pipeline.original
+    assert pipeline.offloads == 1
+    assert service._pipeline is None
+
+
+def test_cancel_after_final_pipeline_callback_never_returns_success(valid_source):
+    from threading import Event
+    flag = Event()
+
+    class LateCancel(FakePipeline):
+        def run(self, path, progress, file_format, add_timestamp, callback,
+                *params, persist_settings=True, strict_vad=False):
+            progress(0.0, desc="Transcribing with WhisperX..")
+            flag.set()
+            return self.segments, self.elapsed
+
+    instance = LateCancel()
+    with pytest.raises(TranscriptionServiceError) as err:
+        TranscriptionService(pipeline_factory=lambda: instance).transcribe(
+            valid_source, cancel_event=flag
+        )
+    assert err.value.code == "CANCELLED"
+    assert instance.offloads == 1
+
+
+def test_oom_failure_invalidates_and_offloads_owner_then_retries_cleanly(valid_source):
+    first = FakePipeline(fail=RuntimeError("CUDA out of memory: secret_path"))
+    second = FakePipeline()
+    pipelines = [first, second]
+    service = TranscriptionService(pipeline_factory=lambda: pipelines.pop(0))
+    with pytest.raises(TranscriptionServiceError) as err:
+        service.transcribe(valid_source)
+    assert err.value.code == "OUT_OF_MEMORY"
+    assert "secret_path" not in str(err.value)
+    assert first.offloads == 1
+    assert service._pipeline is None
+    result = service.transcribe(valid_source)
+    assert result.model_size == "small"
+    assert second.offloads == 1
+    assert service._pipeline is second
+
+
+def test_cancel_event_requires_event_like_is_set(valid_source):
+    instance = FakePipeline()
+    svc = TranscriptionService(pipeline_factory=lambda: instance)
+    with pytest.raises(TypeError, match="cancel_event"):
+        svc.transcribe(valid_source, cancel_event=object())
+    assert instance.calls == []
