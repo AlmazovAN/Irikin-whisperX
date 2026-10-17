@@ -318,3 +318,75 @@ def test_windows_launcher_supports_simple_default_and_exclusive_advanced():
     assert advanced_cmd[advanced_cmd.index("--ui_mode") + 1] == "advanced"
     with pytest.raises(SystemExit):
         mod.parse_args(["--ui-mode", "unexpected"])
+
+
+
+def _launch_args(**overrides):
+    kwargs = dict(
+        server_name="127.0.0.1", share=False, api_open=False,
+        server_port=7860, username=None, password=None, root_path=None,
+        inbrowser=False, ssl_verify=True, ssl_keyfile=None,
+        ssl_keyfile_password=None, ssl_certfile=None,
+    )
+    kwargs.update(overrides)
+    return SimpleNamespace(**kwargs)
+
+
+def test_server_starts_worker_before_browser_accepts_requests_and_stops(monkeypatch, env):
+    jobs, worker, _ = env
+    worker.is_running = False
+    history = []
+
+    class FakeBlocks:
+        def queue(self, **kwargs):
+            assert kwargs["api_open"] is False
+            history.append("queue")
+            return self
+
+        def launch(self, **kwargs):
+            assert kwargs["server_name"] == "127.0.0.1"
+            assert kwargs["share"] is False
+            assert worker.is_running
+            history.append("launch")
+
+    monkeypatch.setattr(simple_mode, "create_runtime",
+                        lambda: (SimpleModeController(jobs, worker), worker))
+    monkeypatch.setattr(simple_mode, "build_blocks",
+                        lambda controller, **kwargs: FakeBlocks())
+    simple_mode.launch_simple(_launch_args())
+    assert worker.starts == 2  # The env fixture first started this fake worker.
+    assert worker.stops == 1
+    assert history == ["queue", "launch"]
+    assert not worker.is_running
+
+
+def test_server_launch_failure_releases_worker(monkeypatch, env):
+    jobs, worker, _ = env
+    worker.is_running = False
+
+    class FailingBlocks:
+        def queue(self, **kwargs):
+            return self
+
+        def launch(self, **kwargs):
+            assert worker.is_running
+            raise RuntimeError("startup failure")
+
+    monkeypatch.setattr(simple_mode, "create_runtime",
+                        lambda: (SimpleModeController(jobs, worker), worker))
+    monkeypatch.setattr(simple_mode, "build_blocks",
+                        lambda controller, **kwargs: FailingBlocks())
+    with pytest.raises(RuntimeError, match="startup failure"):
+        simple_mode.launch_simple(_launch_args())
+    assert worker.stops == 1
+    assert not worker.is_running
+
+
+def test_remote_host_refused_before_worker_start(monkeypatch, env):
+    jobs, worker, _ = env
+    before = worker.starts
+    monkeypatch.setattr(simple_mode, "create_runtime",
+                        lambda: (SimpleModeController(jobs, worker), worker))
+    with pytest.raises(ValueError, match="127.0.0.1"):
+        simple_mode.launch_simple(_launch_args(server_name="0.0.0.0"))
+    assert worker.starts == before
