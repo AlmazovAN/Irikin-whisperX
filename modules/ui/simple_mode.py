@@ -131,7 +131,7 @@ def build_blocks(controller: SimpleModeController, *, gradio: Any = None) -> Any
                 gradio.Markdown(
                     "Старый интерфейс с расширенными настройками сохранён. "
                     "Чтобы открыть его, **остановите текущий сервер** "
-                    "и запустите \`Start.bat --ui-mode advanced\`. "
+                    "и запустите `Start.bat --ui-mode advanced`. "
                     "В одном запуске используется только один режим, "
                     "чтобы не создавать две конкурирующие модели."
                 )

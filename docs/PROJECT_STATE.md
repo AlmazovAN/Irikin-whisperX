@@ -249,3 +249,20 @@ Windows/PyTorch/WhisperX, как договорились, переноситс�
 - Фактический MERGED/CI проверить по GitHub, не по тексту ветки.
 - Следующий этап: P20–P25 — простая браузерная оболочка/история/скачивание,
   интеграция единственного owner через JobService.
+
+
+### P20 / GitHub PR #21: Simple Mode first-screen UI
+
+- База: e04e6af5479de5a68b95a4c2c3731acca56c8ed2.
+- Добавлен modules/ui/simple_mode.py: одиночный локальный upload,
+  фиксированные Small/ru/transcribe, кнопка постановки в durable queue.
+- В app.py режим Simple становится режимом по умолчанию. В Windows
+  launcher добавлен --ui-mode advanced для эксклюзивного legacy UI.
+- Нельзя одновременно стартовать legacy WhisperFactory и новый
+  JobWorker; старый интерфейс не удалён.
+- Только local Gradio staging root + JobService.upload в SQLite.
+  Завершение загрузки и enqueue предшествуют подтверждению UI.
+- Никакого polling/auto-TXT пока нет: P21/PR22 и P23/PR24.
+- Docs: docs/pr21-simple-mode.md. Fast fake Gradio tests only;
+  фактические Gradio/Windows ASR/UI E2E ещё NOT_RUN.
+- Статус CI/MERGED проверять в GitHub после завершения CI.
